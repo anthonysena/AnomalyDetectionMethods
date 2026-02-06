@@ -8,8 +8,8 @@
 # - na.rm: remove NA rows if TRUE
 #
 # Returns:
-# - total_count, mean, modes, median (weighted 50th percentile), weighted_quantiles, IQR (weighted),
-#   unique_value_count, aggregated (value/count table)
+# - total_count, mean, modes, median (counts-based, no interpolation), median_weighted (interp per `interp`),
+#   weighted_quantiles, IQR (weighted), unique_value_count, aggregated (value/count table)
 
 compute_stats_from_freq <- function(df,
                                     probs = c(0.25, 0.5, 0.75),
@@ -79,7 +79,12 @@ compute_stats_from_freq <- function(df,
   qs <- vapply(probs_unique, weighted_quantile_single, numeric(1), USE.NAMES = FALSE)
   names(qs) <- as.character(probs_unique)
   
-  weighted_median <- as.numeric(qs[as.character(0.5)])
+  median_weighted <- as.numeric(qs[as.character(0.5)])
+  
+  # Counts-based median without interpolation ("lower" style)
+  target_median <- 0.5 * total_count
+  idx_median <- which(cum_counts >= target_median)[1]
+  median_discrete <- values[idx_median]
   
   # Weighted IQR using 0.25 and 0.75
   q1 <- if ("0.25" %in% names(qs)) qs["0.25"] else weighted_quantile_single(0.25)
@@ -90,7 +95,8 @@ compute_stats_from_freq <- function(df,
     total_count = total_count,
     mean = mean_val,
     modes = modes,
-    median = weighted_median,             # median = 50th percentile considering counts
+    median = median_discrete,             # counts-based median, no interpolation
+    median_weighted = median_weighted,    # weighted 50th percentile (uses `interp`)
     weighted_quantiles = setNames(as.numeric(qs), names(qs)),
     IQR = iqr_weighted,
     unique_value_count = length(values),
@@ -101,7 +107,8 @@ compute_stats_from_freq <- function(df,
 # Example usage:
 df <- data.frame(value = c(1,2,3,5,10), count = c(1e9, 2e9, 1e9, 5e9, 32e9))
 res <- compute_stats_from_freq(df)
-res$median   # weighted median (50th percentile of expanded data)
+res$median          # counts-based median (no interpolation)
+res$median_weighted # weighted median (uses `interp`)
 res$mean
 res$IQR
 
