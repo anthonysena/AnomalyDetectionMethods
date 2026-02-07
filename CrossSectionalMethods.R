@@ -118,7 +118,9 @@ summarizeValueFrequency <- function(df,
 #' Applies Tukey's method to a value-frequency distribution. Quartiles and IQR
 #' are computed from the frequency-weighted distribution, then lower and upper
 #' fences are calculated as `Q1 - k * IQR` and `Q3 + k * IQR`. Values outside
-#' these fences are flagged as outliers.
+#' these fences are flagged as outliers. Assumptions: the method is
+#' distribution-free (no normality assumption) and requires numeric values with
+#' non-negative integer frequencies.
 #'
 #' @param df A data.frame containing a value column and a frequency column.
 #' @param valueColumn Name of the column in `df` that holds the numeric values.
@@ -167,6 +169,8 @@ tukeyFences <- function(df,
 #' using cumulative frequencies. Quantiles are located by the first value whose
 #' cumulative frequency meets or exceeds the target rank; when `interpolate`
 #' is TRUE, thresholds are linearly interpolated within the frequency bin.
+#' Assumptions: the method is distribution-free (no normality assumption) and
+#' requires numeric values with non-negative integer frequencies.
 #'
 #' @param df A data.frame containing a value column and a frequency column.
 #' @param valueColumn Name of the column in `df` that holds the numeric values.
