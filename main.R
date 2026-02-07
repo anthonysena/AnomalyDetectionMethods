@@ -33,6 +33,10 @@ dfWithZscoreOutliers[dfWithZscoreOutliers$isOutlier, ]
 dfWithModZscoreOutliers <- modifiedZScoreOutliers(df)
 dfWithModZscoreOutliers[dfWithModZscoreOutliers$isOutlier, ]
 
+# Generalized ESD
+dfWithGeneralizedEsd <- generalizedESDOutliers(df)
+dfWithGeneralizedEsd[dfWithGeneralizedEsd$isOutlier, ]
+
 # Plot data
 plotWeightedQQ(df)
 plotWeightedHistogram(df)

@@ -395,3 +395,99 @@ modifiedZScoreOutliers <- function(df,
 
   out
 }
+
+#' Identify outliers using generalized ESD
+#'
+#' Applies the generalized ESD (Extreme Studentized Deviate) test to a
+#' value-frequency distribution, iteratively removing the most extreme point
+#' and comparing the test statistic to a critical value derived from the
+#' t-distribution. The number of outliers is the largest iteration where the
+#' statistic exceeds the critical value. Assumptions: approximately normal
+#' data, numeric values with non-negative integer frequencies.
+#'
+#' @param df A data.frame containing a value column and a frequency column.
+#' @param valueColumn Name of the column in `df` that holds the numeric values.
+#' @param frequencyColumn Name of the column in `df` that holds the numeric
+#'   frequency counts.
+#' @param maxOutliers Maximum number of outliers to test for.
+#' @param alpha Significance level for the ESD test.
+#'
+#' @return A data.frame with `outlierCount` and `isOutlier` columns appended.
+generalizedESDOutliers <- function(df,
+                                   valueColumn = "value",
+                                   frequencyColumn = "frequency",
+                                   maxOutliers = 10,
+                                   alpha = 0.05) {
+  .validateValueFrequencyDf(
+    df = df,
+    valueColumn = valueColumn,
+    frequencyColumn = frequencyColumn
+  )
+  if (!is.numeric(maxOutliers) || length(maxOutliers) != 1 || maxOutliers < 1 || maxOutliers %% 1 != 0) {
+    stop("`maxOutliers` must be a single positive integer.")
+  }
+  if (!is.numeric(alpha) || length(alpha) != 1 || alpha <= 0 || alpha >= 1) {
+    stop("`alpha` must be a single number in (0, 1).")
+  }
+
+  values <- df[[valueColumn]]
+  frequencies <- df[[frequencyColumn]]
+  totalN <- sum(frequencies)
+  if (totalN < 3) {
+    stop("`df` must have at least 3 total observations for ESD.")
+  }
+
+  remainingFrequencies <- frequencies
+  outlierCount <- rep(0, length(values))
+  R <- numeric(maxOutliers)
+  lambda <- numeric(maxOutliers)
+
+  # TODO - This function is repeated in Visualizations.R so consolidate
+  weightedMeanSd <- function(vals, freqs) {
+    n <- sum(freqs)
+    meanValue <- sum(vals * freqs) / n
+    variance <- sum(freqs * (vals - meanValue)^2) / (n - 1)
+    list(mean = meanValue, sd = sqrt(variance))
+  }
+
+  for (i in seq_len(maxOutliers)) {
+    n <- sum(remainingFrequencies)
+    if (n < 3) {
+      R <- R[seq_len(i - 1)]
+      lambda <- lambda[seq_len(i - 1)]
+      break
+    }
+
+    stats <- weightedMeanSd(values, remainingFrequencies)
+    if (!is.finite(stats$sd) || stats$sd == 0) {
+      R <- R[seq_len(i - 1)]
+      lambda <- lambda[seq_len(i - 1)]
+      break
+    }
+
+    deviations <- abs(values - stats$mean)
+    idx <- which.max(deviations)
+    R[i] <- deviations[idx] / stats$sd
+
+    p <- 1 - alpha / (2 * n)
+    tCrit <- stats::qt(p, df = n - 2)
+    lambda[i] <- ((n - 1) * tCrit) / sqrt((n - 2 + tCrit^2) * n)
+
+    outlierCount[idx] <- outlierCount[idx] + 1
+    remainingFrequencies[idx] <- remainingFrequencies[idx] - 1
+    if (remainingFrequencies[idx] < 0) {
+      remainingFrequencies[idx] <- 0
+    }
+  }
+
+  k <- if (length(R) == 0) 0 else max(which(R > lambda), 0)
+  if (k < length(outlierCount)) {
+    outlierCount <- if (k == 0) rep(0, length(outlierCount)) else pmin(outlierCount, 1)
+  }
+
+  out <- df
+  out$outlierCount <- outlierCount
+  out$isOutlier <- outlierCount > 0
+
+  out
+}
