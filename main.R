@@ -1,4 +1,4 @@
-source("TukeyFences.R")
+source("CrossSectionalMethods.R")
 
 # ---- Example data (same 40 observations as before, aggregated) ----
 df <- data.frame(
@@ -15,5 +15,15 @@ df <- data.frame(
 )
 
 valueFrequencySummary <- summarizeValueFrequency(df)
+
+# TukeyFences -------------
 dfWithFences <- tukeyFences(df)
 dfWithFences[dfWithFences$isOutlier, ]
+
+# QuantileThreshold -------------
+dfWithQuantileThresholds <- quantileThresholds(df)
+dfWithQuantileThresholds[dfWithQuantileThresholds$isOutlier,]
+
+# zScore ---------------
+dfWithZscoreOutliers <- zScoreOutliers(df)
+dfWithZscoreOutliers[dfWithZscoreOutliers$isOutlier, ]

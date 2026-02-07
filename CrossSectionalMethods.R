@@ -244,3 +244,52 @@ quantileThresholds <- function(df,
 
   out
 }
+
+#' Identify outliers using z-scores
+#'
+#' Computes z-scores for a value-frequency distribution using the
+#' frequency-weighted mean and standard deviation. Points with absolute
+#' z-scores exceeding the cutoff are flagged as outliers. Assumptions: this
+#' method is best suited to roughly symmetric, bell-shaped distributions and
+#' requires numeric values with non-negative integer frequencies.
+#'
+#' @param df A data.frame containing a value column and a frequency column.
+#' @param valueColumn Name of the column in `df` that holds the numeric values.
+#' @param frequencyColumn Name of the column in `df` that holds the numeric
+#'   frequency counts.
+#' @param zCutoff A single positive number indicating the absolute z-score
+#'   threshold used to flag outliers.
+#'
+#' @return A data.frame with `zScore` and `isOutlier` columns appended.
+zScoreOutliers <- function(df,
+                           valueColumn = "value",
+                           frequencyColumn = "frequency",
+                           zCutoff = 3) {
+  .validateValueFrequencyDf(
+    df = df,
+    valueColumn = valueColumn,
+    frequencyColumn = frequencyColumn
+  )
+  if (!is.numeric(zCutoff) || length(zCutoff) != 1 || zCutoff <= 0) {
+    stop("`zCutoff` must be a single positive number.")
+  }
+
+  values <- df[[valueColumn]]
+  frequencies <- df[[frequencyColumn]]
+  totalN <- sum(frequencies)
+
+  meanValue <- sum(values * frequencies) / totalN
+  variance <- sum(frequencies * (values - meanValue)^2) / totalN
+  if (variance <= 0) {
+    stop("Standard deviation is 0; z-scores are undefined.")
+  }
+  sdValue <- sqrt(variance)
+
+  zScore <- (values - meanValue) / sdValue
+
+  out <- df
+  out$zScore <- zScore
+  out$isOutlier <- abs(zScore) > zCutoff
+
+  out
+}
