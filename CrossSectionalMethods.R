@@ -56,6 +56,53 @@
     stop("Total frequency is 0; nothing to summarize.")
   }
 }
+
+#' Compute a quantile from value-frequency data
+#'
+#' Computes the quantile for a distribution represented by values and
+#' frequencies. Values are optionally sorted by value, then the quantile is
+#' located by the first value whose cumulative frequency meets or exceeds the
+#' target rank. When `interpolate` is TRUE, linearly interpolates within the
+#' frequency bin. Assumptions: numeric values with non-negative integer
+#' frequencies and a positive total count.
+#'
+#' @param values Numeric vector of values.
+#' @param frequencies Numeric vector of frequency counts corresponding to
+#'   `values`.
+#' @param p Quantile probability in `[0, 1]`.
+#' @param interpolate Logical; whether to linearly interpolate within the
+#'   selected frequency bin.
+#' @param preSorted Logical; if TRUE, assumes `values` are already sorted in
+#'   ascending order and `frequencies` aligned to that ordering.
+#'
+#' @return A single numeric quantile value.
+#'
+#' @keywords internal
+.quantileFromFreq <- function(values, frequencies, p, interpolate, preSorted = FALSE) {
+  if (!preSorted) {
+    ordering <- order(values)
+    values <- values[ordering]
+    frequencies <- frequencies[ordering]
+  }
+
+  totalN <- sum(frequencies)
+  target <- p * totalN
+  if (target <= 0) return(values[1])
+  if (target >= totalN) return(values[length(values)])
+
+  cumulativeFrequencies <- cumsum(frequencies)
+  idx <- which(cumulativeFrequencies >= target)[1]
+  if (!interpolate) {
+    return(values[idx])
+  }
+
+  prevCount <- if (idx > 1) cumulativeFrequencies[idx - 1] else 0
+  if (frequencies[idx] == 0 || target == prevCount) return(values[idx])
+  prop <- (target - prevCount) / frequencies[idx]
+  prevValue <- if (idx > 1) values[idx - 1] else values[1]
+  currValue <- values[idx]
+  prevValue + prop * (currValue - prevValue)
+}
 #' Summarize a value-frequency distribution
 #'
 #' Computes descriptive statistics for a distribution represented by values
@@ -216,26 +263,8 @@ quantileThresholds <- function(df,
   values <- values[ordering]
   frequencies <- frequencies[ordering]
 
-  cumulativeFrequencies <- cumsum(frequencies)
-
-  quantileFromFreq <- function(p) {
-    target <- p * totalN
-    if (target <= 0) return(values[1])
-    if (target >= totalN) return(values[length(values)])
-    idx <- which(cumulativeFrequencies >= target)[1]
-    if (!interpolate) {
-      return(values[idx])
-    }
-    prevCount <- if (idx > 1) cumulativeFrequencies[idx - 1] else 0
-    if (frequencies[idx] == 0 || target == prevCount) return(values[idx])
-    prop <- (target - prevCount) / frequencies[idx]
-    prevValue <- if (idx > 1) values[idx - 1] else values[1]
-    currValue <- values[idx]
-    prevValue + prop * (currValue - prevValue)
-  }
-
-  lowerThreshold <- quantileFromFreq(lowerProb)
-  upperThreshold <- quantileFromFreq(upperProb)
+  lowerThreshold <- .quantileFromFreq(values, frequencies, lowerProb, interpolate, preSorted = TRUE)
+  upperThreshold <- .quantileFromFreq(values, frequencies, upperProb, interpolate, preSorted = TRUE)
 
   out <- df
   out$lowerThreshold <- lowerThreshold
@@ -290,6 +319,79 @@ zScoreOutliers <- function(df,
   out <- df
   out$zScore <- zScore
   out$isOutlier <- abs(zScore) > zCutoff
+
+  out
+}
+
+#' Identify outliers using modified z-scores
+#'
+#' Computes modified z-scores for a value-frequency distribution using the
+#' median and MAD (median absolute deviation). The constant 0.6745 rescales
+#' MAD so that modified z-scores match standard z-scores under normality.
+#' Points with absolute modified z-scores exceeding the cutoff are flagged as
+#' outliers. Assumptions: distribution-free and robust to skew/outliers, but
+#' requires numeric values with non-negative integer frequencies and a non-zero
+#' MAD.
+#'
+#' @param df A data.frame containing a value column and a frequency column.
+#' @param valueColumn Name of the column in `df` that holds the numeric values.
+#' @param frequencyColumn Name of the column in `df` that holds the numeric
+#'   frequency counts.
+#' @param zCutoff A single positive number indicating the absolute modified
+#'   z-score threshold used to flag outliers.
+#' @param interpolate Logical; whether to linearly interpolate quantiles when
+#'   locating the median and MAD from cumulative frequencies.
+#'
+#' @return A data.frame with `modifiedZScore` and `isOutlier` columns appended.
+modifiedZScoreOutliers <- function(df,
+                                   valueColumn = "value",
+                                   frequencyColumn = "frequency",
+                                   zCutoff = 3.5,
+                                   interpolate = FALSE) {
+  .validateValueFrequencyDf(
+    df = df,
+    valueColumn = valueColumn,
+    frequencyColumn = frequencyColumn
+  )
+  if (!is.numeric(zCutoff) || length(zCutoff) != 1 || zCutoff <= 0) {
+    stop("`zCutoff` must be a single positive number.")
+  }
+  if (!is.logical(interpolate) || length(interpolate) != 1) {
+    stop("`interpolate` must be TRUE or FALSE.")
+  }
+
+  values <- df[[valueColumn]]
+  frequencies <- df[[frequencyColumn]]
+  totalN <- sum(frequencies)
+
+  ordering <- order(values)
+  values <- values[ordering]
+  frequencies <- frequencies[ordering]
+
+  medianValue <- .quantileFromFreq(values, frequencies, 0.5, interpolate, preSorted = TRUE)
+  absDeviations <- abs(values - medianValue)
+
+  orderingMad <- order(absDeviations)
+  absDeviations <- absDeviations[orderingMad]
+  madFrequencies <- frequencies[orderingMad]
+
+  madValue <- .quantileFromFreq(
+    absDeviations,
+    madFrequencies,
+    0.5,
+    interpolate,
+    preSorted = TRUE
+  )
+  if (madValue == 0) {
+    stop("MAD is 0; modified z-scores are undefined.")
+  }
+
+  modifiedZScore <- 0.6745 * (values - medianValue) / madValue
+  modifiedZScore <- modifiedZScore[order(ordering)]
+
+  out <- df
+  out$modifiedZScore <- modifiedZScore
+  out$isOutlier <- abs(modifiedZScore) > zCutoff
 
   out
 }

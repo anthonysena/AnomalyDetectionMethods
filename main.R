@@ -1,4 +1,5 @@
 source("CrossSectionalMethods.R")
+source("Visualizations.R")
 
 # ---- Example data (same 40 observations as before, aggregated) ----
 df <- data.frame(
@@ -27,3 +28,13 @@ dfWithQuantileThresholds[dfWithQuantileThresholds$isOutlier,]
 # zScore ---------------
 dfWithZscoreOutliers <- zScoreOutliers(df)
 dfWithZscoreOutliers[dfWithZscoreOutliers$isOutlier, ]
+
+# Modified zScore
+dfWithModZscoreOutliers <- modifiedZScoreOutliers(df)
+dfWithModZscoreOutliers[dfWithModZscoreOutliers$isOutlier, ]
+
+# Plot data
+plotWeightedQQ(df)
+plotWeightedHistogram(df)
+plotWeightedDensity(df)
+plotWeightedECDF(df)
