@@ -1,108 +1,3 @@
-#' Validate a value-frequency data frame
-#'
-#' Performs shared validation for data frames that contain a value column and a
-#' frequency column used by the cross-sectional methods. Checks that the input
-#' is a data.frame, required columns exist, values are numeric without missing
-#' entries, frequencies are non-negative integers, and the total frequency is
-#' non-zero.
-#'
-#' @param df A data.frame containing a value column and a frequency column.
-#' @param valueColumn Name of the column in `df` that holds the numeric values.
-#' @param frequencyColumn Name of the column in `df` that holds the numeric
-#'   frequency counts.
-#'
-#' @keywords internal
-.validateValueFrequencyDf <- function(df,
-  valueColumn = "value",
-  frequencyColumn = "frequency") {
-  if (!is.data.frame(df)) {
-    stop("`df` must be a data.frame.")
-  }
-
-  requiredColumns <- c(valueColumn, frequencyColumn)
-  if (!all(requiredColumns %in% names(df))) {
-    stop(
-      paste0(
-        "`df` must contain columns: ",
-        paste(requiredColumns, collapse = ", "),
-        "."
-      )
-    )
-  }
-  values <- df[[valueColumn]]
-  frequencies <- df[[frequencyColumn]]
-
-  if (length(values) == 0) {
-    stop("`df` must have at least one row.")
-  }
-  if (anyNA(values) || anyNA(frequencies)) {
-    stop("`value` and `frequency` columns cannot contain NA.")
-  }
-  if (!is.numeric(values)) {
-    stop("`value` column must be numeric.")
-  }
-  if (!is.numeric(frequencies)) {
-    stop("`frequency` column must be numeric.")
-  }
-  if (any(frequencies < 0)) {
-    stop("`frequency` values must be >= 0.")
-  }
-  if (any(frequencies %% 1 != 0)) {
-    stop("`frequency` values must be integers (counts).")
-  }
-
-  totalN <- sum(frequencies)
-  if (totalN == 0) {
-    stop("Total frequency is 0; nothing to summarize.")
-  }
-}
-
-#' Compute a quantile from value-frequency data
-#'
-#' Computes the quantile for a distribution represented by values and
-#' frequencies. Values are optionally sorted by value, then the quantile is
-#' located by the first value whose cumulative frequency meets or exceeds the
-#' target rank. When `interpolate` is TRUE, linearly interpolates within the
-#' frequency bin. Assumptions: numeric values with non-negative integer
-#' frequencies and a positive total count.
-#'
-#' @param values Numeric vector of values.
-#' @param frequencies Numeric vector of frequency counts corresponding to
-#'   `values`.
-#' @param p Quantile probability in `[0, 1]`.
-#' @param interpolate Logical; whether to linearly interpolate within the
-#'   selected frequency bin.
-#' @param preSorted Logical; if TRUE, assumes `values` are already sorted in
-#'   ascending order and `frequencies` aligned to that ordering.
-#'
-#' @return A single numeric quantile value.
-#'
-#' @keywords internal
-.quantileFromFreq <- function(values, frequencies, p, interpolate, preSorted = FALSE) {
-  if (!preSorted) {
-    ordering <- order(values)
-    values <- values[ordering]
-    frequencies <- frequencies[ordering]
-  }
-
-  totalN <- sum(frequencies)
-  target <- p * totalN
-  if (target <= 0) return(values[1])
-  if (target >= totalN) return(values[length(values)])
-
-  cumulativeFrequencies <- cumsum(frequencies)
-  idx <- which(cumulativeFrequencies >= target)[1]
-  if (!interpolate) {
-    return(values[idx])
-  }
-
-  prevCount <- if (idx > 1) cumulativeFrequencies[idx - 1] else 0
-  if (frequencies[idx] == 0 || target == prevCount) return(values[idx])
-  prop <- (target - prevCount) / frequencies[idx]
-  prevValue <- if (idx > 1) values[idx - 1] else values[1]
-  currValue <- values[idx]
-  prevValue + prop * (currValue - prevValue)
-}
 #' Summarize a value-frequency distribution
 #'
 #' Computes descriptive statistics for a distribution represented by values
@@ -118,6 +13,7 @@
 #'
 #' @return A data.frame with summary statistics: `n`, `mean`, `median`, `mode`,
 #'   `q1`, `q3`, and `iqr`.
+#' @export
 summarizeValueFrequency <- function(df,
                                    valueColumn = "value",
                                    frequencyColumn = "frequency") {
@@ -143,7 +39,6 @@ summarizeValueFrequency <- function(df,
   modes <- values[frequencies == maxFrequency]
   modeValue <- paste(modes, collapse = ", ")
 
-  # Non-expanding quartiles (type = "inverse-ECDF" with count ranks):
   q1 <- values[which(cumulativeFrequencies >= 0.25 * totalN)[1]]
   q3 <- values[which(cumulativeFrequencies >= 0.75 * totalN)[1]]
   iqrValue <- q3 - q1
@@ -177,6 +72,7 @@ summarizeValueFrequency <- function(df,
 #'
 #' @return A data.frame with `lowerFence`, `upperFence`, and `isOutlier`
 #'   columns appended.
+#' @export
 tukeyFences <- function(df,
                         valueColumn = "value",
                         frequencyColumn = "frequency",
@@ -189,9 +85,6 @@ tukeyFences <- function(df,
   if (!is.numeric(fenceMultiplier) || length(fenceMultiplier) != 1 || fenceMultiplier <= 0) {
     stop("`fenceMultiplier` must be a single positive number.")
   }
-
-  values <- df[[valueColumn]]
-  frequencies <- df[[frequencyColumn]]
 
   stats <- summarizeValueFrequency(
     df = df,
@@ -231,6 +124,7 @@ tukeyFences <- function(df,
 #'
 #' @return A data.frame with `lowerThreshold`, `upperThreshold`, and
 #'   `isOutlier` columns appended.
+#' @export
 quantileThresholds <- function(df,
                                valueColumn = "value",
                                frequencyColumn = "frequency",
@@ -257,7 +151,6 @@ quantileThresholds <- function(df,
 
   values <- df[[valueColumn]]
   frequencies <- df[[frequencyColumn]]
-  totalN <- sum(frequencies)
 
   ordering <- order(values)
   values <- values[ordering]
@@ -290,6 +183,7 @@ quantileThresholds <- function(df,
 #'   threshold used to flag outliers.
 #'
 #' @return A data.frame with `zScore` and `isOutlier` columns appended.
+#' @export
 zScoreOutliers <- function(df,
                            valueColumn = "value",
                            frequencyColumn = "frequency",
@@ -305,16 +199,13 @@ zScoreOutliers <- function(df,
 
   values <- df[[valueColumn]]
   frequencies <- df[[frequencyColumn]]
-  totalN <- sum(frequencies)
 
-  meanValue <- sum(values * frequencies) / totalN
-  variance <- sum(frequencies * (values - meanValue)^2) / totalN
-  if (variance <= 0) {
+  stats <- .weightedMeanSd(values, frequencies)
+  if (stats$sd <= 0) {
     stop("Standard deviation is 0; z-scores are undefined.")
   }
-  sdValue <- sqrt(variance)
 
-  zScore <- (values - meanValue) / sdValue
+  zScore <- (values - stats$mean) / stats$sd
 
   out <- df
   out$zScore <- zScore
@@ -343,6 +234,7 @@ zScoreOutliers <- function(df,
 #'   locating the median and MAD from cumulative frequencies.
 #'
 #' @return A data.frame with `modifiedZScore` and `isOutlier` columns appended.
+#' @export
 modifiedZScoreOutliers <- function(df,
                                    valueColumn = "value",
                                    frequencyColumn = "frequency",
@@ -362,7 +254,6 @@ modifiedZScoreOutliers <- function(df,
 
   values <- df[[valueColumn]]
   frequencies <- df[[frequencyColumn]]
-  totalN <- sum(frequencies)
 
   ordering <- order(values)
   values <- values[ordering]
@@ -413,6 +304,7 @@ modifiedZScoreOutliers <- function(df,
 #' @param alpha Significance level for the ESD test.
 #'
 #' @return A data.frame with `outlierCount` and `isOutlier` columns appended.
+#' @export
 generalizedESDOutliers <- function(df,
                                    valueColumn = "value",
                                    frequencyColumn = "frequency",
@@ -442,14 +334,6 @@ generalizedESDOutliers <- function(df,
   R <- numeric(maxOutliers)
   lambda <- numeric(maxOutliers)
 
-  # TODO - This function is repeated in Visualizations.R so consolidate
-  weightedMeanSd <- function(vals, freqs) {
-    n <- sum(freqs)
-    meanValue <- sum(vals * freqs) / n
-    variance <- sum(freqs * (vals - meanValue)^2) / (n - 1)
-    list(mean = meanValue, sd = sqrt(variance))
-  }
-
   for (i in seq_len(maxOutliers)) {
     n <- sum(remainingFrequencies)
     if (n < 3) {
@@ -458,7 +342,7 @@ generalizedESDOutliers <- function(df,
       break
     }
 
-    stats <- weightedMeanSd(values, remainingFrequencies)
+    stats <- .weightedMeanSd(values, remainingFrequencies, sample = TRUE)
     if (!is.finite(stats$sd) || stats$sd == 0) {
       R <- R[seq_len(i - 1)]
       lambda <- lambda[seq_len(i - 1)]

@@ -1,0 +1,16 @@
+Package: AnomalyDetectionMethods
+Title: A collection of anomaly detection methods for evaluation using observational healthcare data standardized to the OMOP Common Data Model
+Version: 0.0.0.9000
+Date: 2026-02-19
+Authors@R: 
+    person("Anthony", "Sena", , "sena@ohdsi.org", role = c("aut", "cre"))
+Description: This package provides methods for extracting data from the OMOP Common Data Model and applying outlier detection methods to surface anomalies.
+License: Apache License
+Encoding: UTF-8
+Imports:
+  ggplot2,
+  rlang,
+  stats
+Suggests:
+  testthat
+RoxygenNote: 7.3.3

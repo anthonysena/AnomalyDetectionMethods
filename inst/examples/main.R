@@ -1,5 +1,4 @@
-source("CrossSectionalMethods.R")
-source("Visualizations.R")
+library(AnomalyDetectionMethods)
 
 # ---- Example data (same 40 observations as before, aggregated) ----
 df <- data.frame(
@@ -17,27 +16,21 @@ df <- data.frame(
 
 valueFrequencySummary <- summarizeValueFrequency(df)
 
-# TukeyFences -------------
 dfWithFences <- tukeyFences(df)
 dfWithFences[dfWithFences$isOutlier, ]
 
-# QuantileThreshold -------------
 dfWithQuantileThresholds <- quantileThresholds(df)
 dfWithQuantileThresholds[dfWithQuantileThresholds$isOutlier,]
 
-# zScore ---------------
 dfWithZscoreOutliers <- zScoreOutliers(df)
 dfWithZscoreOutliers[dfWithZscoreOutliers$isOutlier, ]
 
-# Modified zScore
 dfWithModZscoreOutliers <- modifiedZScoreOutliers(df)
 dfWithModZscoreOutliers[dfWithModZscoreOutliers$isOutlier, ]
 
-# Generalized ESD
 dfWithGeneralizedEsd <- generalizedESDOutliers(df)
 dfWithGeneralizedEsd[dfWithGeneralizedEsd$isOutlier, ]
 
-# Plot data
 plotWeightedQQ(df)
 plotWeightedHistogram(df)
 plotWeightedDensity(df)

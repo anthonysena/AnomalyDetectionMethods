@@ -1,22 +1,3 @@
-#' Weighted mean and standard deviation
-#'
-#' Computes the frequency-weighted mean and population standard deviation for
-#' value-frequency data.
-#'
-#' @param values Numeric vector of values.
-#' @param frequencies Numeric vector of frequency counts corresponding to
-#'   `values`.
-#'
-#' @return A list with `mean` and `sd`.
-#'
-#' @keywords internal
-.weightedMeanSd <- function(values, frequencies) {
-  totalN <- sum(frequencies)
-  meanValue <- sum(values * frequencies) / totalN
-  variance <- sum(frequencies * (values - meanValue)^2) / totalN
-  list(mean = meanValue, sd = sqrt(variance))
-}
-
 #' Plot a normal Q-Q plot for value-frequency data
 #'
 #' Creates a normal Q-Q plot using frequency-weighted plotting positions. Each
@@ -31,6 +12,7 @@
 #'   weighted mean and standard deviation.
 #'
 #' @return A ggplot object with theoretical and observed quantiles.
+#' @export
 plotWeightedQQ <- function(df,
                            valueColumn = "value",
                            frequencyColumn = "frequency",
@@ -52,7 +34,7 @@ plotWeightedQQ <- function(df,
   probs <- (cumulativeFrequencies - 0.5 * frequencies) / totalN
 
   stats <- .weightedMeanSd(values, frequencies)
-  theoretical <- qnorm(probs, mean = stats$mean, sd = stats$sd)
+  theoretical <- stats::qnorm(probs, mean = stats$mean, sd = stats$sd)
 
   plotData <- data.frame(
     theoretical = theoretical,
@@ -60,7 +42,10 @@ plotWeightedQQ <- function(df,
     stringsAsFactors = FALSE
   )
 
-  p <- ggplot2::ggplot(plotData, ggplot2::aes(x = theoretical, y = observed)) +
+  p <- ggplot2::ggplot(
+    plotData,
+    ggplot2::aes(x = .data$theoretical, y = .data$observed)
+  ) +
     ggplot2::geom_point() +
     ggplot2::labs(x = "Theoretical Quantiles", y = "Observed Values")
 
@@ -85,6 +70,7 @@ plotWeightedQQ <- function(df,
 #' @param addNormal Logical; whether to overlay the fitted normal curve.
 #'
 #' @return A ggplot object with weighted histogram and optional normal curve.
+#' @export
 plotWeightedHistogram <- function(df,
                                   valueColumn = "value",
                                   frequencyColumn = "frequency",
@@ -100,7 +86,7 @@ plotWeightedHistogram <- function(df,
   frequencies <- df[[frequencyColumn]]
   totalN <- sum(frequencies)
 
-  baseHist <- hist(values, breaks = breaks, plot = FALSE)
+  baseHist <- graphics::hist(values, breaks = breaks, plot = FALSE)
   bins <- cut(values, breaks = baseHist$breaks, include.lowest = TRUE, right = TRUE)
   counts <- tapply(frequencies, bins, sum)
   counts <- as.numeric(counts)
@@ -114,16 +100,24 @@ plotWeightedHistogram <- function(df,
     stringsAsFactors = FALSE
   )
 
-  p <- ggplot2::ggplot(plotData, ggplot2::aes(x = mids, y = counts)) +
+  p <- ggplot2::ggplot(
+    plotData,
+    ggplot2::aes(x = .data$mids, y = .data$counts)
+  ) +
     ggplot2::geom_col(width = binWidth, fill = "grey70", color = "grey40") +
     ggplot2::labs(x = "Value", y = "Weighted Count")
 
   if (addNormal) {
     stats <- .weightedMeanSd(values, frequencies)
     xGrid <- seq(min(baseHist$breaks), max(baseHist$breaks), length.out = 512)
-    yNormal <- dnorm(xGrid, mean = stats$mean, sd = stats$sd) * totalN * binWidth
+    yNormal <- stats::dnorm(xGrid, mean = stats$mean, sd = stats$sd) * totalN * binWidth
     normalData <- data.frame(x = xGrid, y = yNormal, stringsAsFactors = FALSE)
-    p <- p + ggplot2::geom_line(data = normalData, ggplot2::aes(x = x, y = y), linetype = 2, color = "red")
+    p <- p + ggplot2::geom_line(
+      data = normalData,
+      ggplot2::aes(x = .data$x, y = .data$y),
+      linetype = 2,
+      color = "red"
+    )
   }
 
   p
@@ -144,6 +138,7 @@ plotWeightedHistogram <- function(df,
 #' @param addNormal Logical; whether to overlay the fitted normal density.
 #'
 #' @return A ggplot object with weighted density and optional normal curve.
+#' @export
 plotWeightedDensity <- function(df,
                                 valueColumn = "value",
                                 frequencyColumn = "frequency",
@@ -162,7 +157,7 @@ plotWeightedDensity <- function(df,
 
   if (totalN <= maxExpand) {
     expanded <- rep(values, frequencies)
-    dens <- density(expanded, n = n)
+    dens <- stats::density(expanded, n = n)
   } else {
     bw <- stats::bw.nrd0(values)
     xGrid <- seq(min(values), max(values), length.out = n)
@@ -173,15 +168,23 @@ plotWeightedDensity <- function(df,
   }
 
   plotData <- data.frame(x = dens$x, y = dens$y, stringsAsFactors = FALSE)
-  p <- ggplot2::ggplot(plotData, ggplot2::aes(x = x, y = y)) +
+  p <- ggplot2::ggplot(
+    plotData,
+    ggplot2::aes(x = .data$x, y = .data$y)
+  ) +
     ggplot2::geom_line() +
     ggplot2::labs(x = "Value", y = "Density")
 
   if (addNormal) {
     stats <- .weightedMeanSd(values, frequencies)
-    yNormal <- dnorm(dens$x, mean = stats$mean, sd = stats$sd)
+    yNormal <- stats::dnorm(dens$x, mean = stats$mean, sd = stats$sd)
     normalData <- data.frame(x = dens$x, y = yNormal, stringsAsFactors = FALSE)
-    p <- p + ggplot2::geom_line(data = normalData, ggplot2::aes(x = x, y = y), linetype = 2, color = "red")
+    p <- p + ggplot2::geom_line(
+      data = normalData,
+      ggplot2::aes(x = .data$x, y = .data$y),
+      linetype = 2,
+      color = "red"
+    )
   }
 
   p
@@ -200,6 +203,7 @@ plotWeightedDensity <- function(df,
 #' @param addNormal Logical; whether to overlay the fitted normal CDF.
 #'
 #' @return A ggplot object with weighted ECDF and optional normal CDF.
+#' @export
 plotWeightedECDF <- function(df,
                              valueColumn = "value",
                              frequencyColumn = "frequency",
@@ -220,14 +224,22 @@ plotWeightedECDF <- function(df,
   ecdfValues <- cumsum(frequencies) / totalN
 
   plotData <- data.frame(values = values, ecdf = ecdfValues, stringsAsFactors = FALSE)
-  p <- ggplot2::ggplot(plotData, ggplot2::aes(x = values, y = ecdf)) +
+  p <- ggplot2::ggplot(
+    plotData,
+    ggplot2::aes(x = .data$values, y = .data$ecdf)
+  ) +
     ggplot2::geom_step() +
     ggplot2::labs(x = "Value", y = "ECDF")
 
   if (addNormal) {
     stats <- .weightedMeanSd(values, frequencies)
-    normalData <- data.frame(values = values, cdf = pnorm(values, mean = stats$mean, sd = stats$sd), stringsAsFactors = FALSE)
-    p <- p + ggplot2::geom_line(data = normalData, ggplot2::aes(x = values, y = cdf), linetype = 2, color = "red")
+    normalData <- data.frame(values = values, cdf = stats::pnorm(values, mean = stats$mean, sd = stats$sd), stringsAsFactors = FALSE)
+    p <- p + ggplot2::geom_line(
+      data = normalData,
+      ggplot2::aes(x = .data$values, y = .data$cdf),
+      linetype = 2,
+      color = "red"
+    )
   }
 
   p
