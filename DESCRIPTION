@@ -12,5 +12,8 @@ Imports:
   rlang,
   stats
 Suggests:
+  DT,
+  plotly,
+  shiny,
   testthat
 RoxygenNote: 7.3.3
