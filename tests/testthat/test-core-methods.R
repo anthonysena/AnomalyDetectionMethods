@@ -118,3 +118,28 @@ test_that("studentizedResidualOutliers flags known regression outlier", {
   expect_true(out$isOutlier[df$value == 40])
   expect_gt(out$outlierProportion[df$value == 40], 0)
 })
+
+test_that("cooksDistanceOutliers flags known influential point", {
+  df <- data.frame(
+    value = c(11, 14, 17, 20, 23, 40),
+    frequency = c(6, 7, 8, 8, 7, 2),
+    featureA = c(1, 2, 3, 4, 5, 6),
+    featureB = c(1.4, 2.1, 3.9, 3.8, 5.7, 7.5)
+  )
+
+  out <- cooksDistanceOutliers(
+    df = df,
+    valueColumn = "value",
+    frequencyColumn = "frequency",
+    responseColumn = "value",
+    featureColumns = c("featureA", "featureB"),
+    distanceCutoff = 0.5
+  )
+
+  expect_s3_class(out, "data.frame")
+  expect_equal(nrow(out), nrow(df))
+  expect_true(all(c("cooksDistance", "distanceCutoff", "outlierProportion", "isOutlier") %in% names(out)))
+  expect_true(is.logical(out$isOutlier))
+  expect_true(out$isOutlier[df$value == 40])
+  expect_gt(out$outlierProportion[df$value == 40], 0)
+})

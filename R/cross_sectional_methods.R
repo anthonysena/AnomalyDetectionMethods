@@ -512,6 +512,111 @@ studentizedResidualOutliers <- function(df,
   out
 }
 
+#' Identify outliers using Cook's distance from a weighted linear model
+#'
+#' Fits a weighted linear regression model using `frequency` as case weights and
+#' computes Cook's distance for each row. Rows are flagged as outliers when
+#' Cook's distance exceeds `distanceCutoff`. If `distanceCutoff` is `NULL`, the
+#' common heuristic `4 / n` is used, where `n` is the number of rows with
+#' positive frequency.
+#'
+#' Assumptions: response and feature columns are numeric, frequencies are
+#' non-negative integer counts used as case weights, and the linear model is
+#' appropriate for the response-feature relationship.
+#'
+#' @param df A data.frame containing value/frequency columns and feature columns.
+#' @param valueColumn Name of the column in `df` that holds numeric values.
+#' @param frequencyColumn Name of the column in `df` that holds numeric
+#'   frequency counts.
+#' @param responseColumn Name of the response column for the regression model.
+#'   Defaults to `valueColumn`.
+#' @param featureColumns Character vector of predictor column names. If `NULL`,
+#'   all columns except `valueColumn`, `frequencyColumn`, and `responseColumn`
+#'   are used.
+#' @param distanceCutoff Optional positive numeric cutoff for Cook's distance.
+#'   If `NULL`, uses `4 / n` where `n` is the number of rows with positive
+#'   frequency.
+#'
+#' @return A data.frame with `cooksDistance`, `distanceCutoff`,
+#'   `outlierProportion`, and `isOutlier` columns appended.
+#' @export
+cooksDistanceOutliers <- function(df,
+                                  valueColumn = "value",
+                                  frequencyColumn = "frequency",
+                                  responseColumn = valueColumn,
+                                  featureColumns = NULL,
+                                  distanceCutoff = NULL) {
+  .validateValueFrequencyDf(
+    df = df,
+    valueColumn = valueColumn,
+    frequencyColumn = frequencyColumn
+  )
+  if (!responseColumn %in% names(df)) {
+    stop(paste0("`responseColumn` not found in `df`: ", responseColumn, "."))
+  }
+  if (!is.numeric(df[[responseColumn]])) {
+    stop("`responseColumn` must be numeric.")
+  }
+  if (!is.null(featureColumns) && (!is.character(featureColumns) || length(featureColumns) < 1)) {
+    stop("`featureColumns` must be NULL or a non-empty character vector.")
+  }
+  if (!is.null(distanceCutoff) && (!is.numeric(distanceCutoff) || length(distanceCutoff) != 1 || distanceCutoff <= 0)) {
+    stop("`distanceCutoff` must be NULL or a single positive number.")
+  }
+
+  if (is.null(featureColumns)) {
+    featureColumns <- setdiff(names(df), c(valueColumn, frequencyColumn, responseColumn))
+  }
+  if (length(featureColumns) < 1) {
+    stop("No feature columns available. Provide `featureColumns` explicitly.")
+  }
+  if (!all(featureColumns %in% names(df))) {
+    missing <- setdiff(featureColumns, names(df))
+    stop(paste0("Missing feature columns: ", paste(missing, collapse = ", "), "."))
+  }
+
+  featuresDf <- df[, featureColumns, drop = FALSE]
+  if (!all(vapply(featuresDf, is.numeric, logical(1)))) {
+    stop("All `featureColumns` must be numeric.")
+  }
+
+  frequencies <- df[[frequencyColumn]]
+  positiveIdx <- which(frequencies > 0)
+  if (length(positiveIdx) < 3) {
+    stop("Need at least 3 rows with positive frequency for linear-model fitting.")
+  }
+
+  if (anyNA(df[[responseColumn]][positiveIdx]) || anyNA(featuresDf[positiveIdx, , drop = FALSE])) {
+    stop("`responseColumn` and `featureColumns` cannot contain NA for rows with positive frequency.")
+  }
+
+  formula <- stats::as.formula(paste("response ~", paste(featureColumns, collapse = " + ")))
+  modelDf <- df[positiveIdx, c(responseColumn, featureColumns), drop = FALSE]
+  names(modelDf)[1] <- "response"
+  modelWeights <- frequencies[positiveIdx]
+  fit <- stats::lm(formula = formula, data = modelDf, weights = modelWeights)
+
+  cooksPositive <- stats::cooks.distance(fit)
+  if (anyNA(cooksPositive)) {
+    stop("Cook's distance contains NA; model may be singular or under-identified.")
+  }
+
+  cutoff <- if (is.null(distanceCutoff)) 4 / length(positiveIdx) else distanceCutoff
+
+  cooksDistance <- rep(NA_real_, nrow(df))
+  cooksDistance[positiveIdx] <- as.numeric(cooksPositive)
+  outlierProportion <- rep(0, nrow(df))
+  outlierProportion[positiveIdx] <- as.numeric(cooksPositive > cutoff)
+
+  out <- df
+  out$cooksDistance <- cooksDistance
+  out$distanceCutoff <- cutoff
+  out$outlierProportion <- outlierProportion
+  out$isOutlier <- outlierProportion > 0
+
+  out
+}
+
 #' Identify outliers using generalized ESD
 #'
 #' Applies the generalized ESD (Extreme Studentized Deviate) test to a
