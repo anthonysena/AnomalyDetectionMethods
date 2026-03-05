@@ -57,9 +57,7 @@ test_that("input validator rejects malformed data", {
   expect_error(summarizeValueFrequency(badFreq), "`frequency` values must be >= 0.")
 })
 
-test_that("mcdOutliersRrcovHD flags known multivariate outlier from value-frequency data", {
-  skip_if_not_installed("rrcovHD")
-
+test_that("weightedMahalanobisOutliers flags known multivariate outlier without expansion", {
   path <- system.file("extdata", "mcd_test_data.csv", package = "AnomalyDetectionMethods")
   if (!nzchar(path)) {
     path <- testthat::test_path("..", "..", "inst", "extdata", "mcd_test_data.csv")
@@ -67,32 +65,30 @@ test_that("mcdOutliersRrcovHD flags known multivariate outlier from value-freque
   expect_true(file.exists(path))
 
   df <- read.csv(path, stringsAsFactors = FALSE)
-  out <- mcdOutliersRrcovHD(
+  out <- weightedMahalanobisOutliers(
     df = df,
     valueColumn = "value",
     frequencyColumn = "frequency",
     featureColumns = c("featureA", "featureB", "featureC"),
-    control = "mcd"
+    tailProb = 0.99
   )
 
   expect_s3_class(out, "data.frame")
   expect_equal(nrow(out), nrow(df))
-  expect_true(all(c("robustDistance", "distanceCutoff", "outlierProportion", "isOutlier") %in% names(out)))
+  expect_true(all(c("weightedMahalanobisDistance", "distanceCutoff", "outlierProportion", "isOutlier") %in% names(out)))
   expect_true(is.logical(out$isOutlier))
   expect_true(out$isOutlier[df$value == 40])
   expect_gt(out$outlierProportion[df$value == 40], 0)
 })
 
-test_that("mcdOutliersRrcovHD errors for default value-frequency data without feature columns", {
-  skip_if_not_installed("rrcovHD")
-
+test_that("weightedMahalanobisOutliers errors for default value-frequency data without feature columns", {
   df <- data.frame(
     value = c(5, 6, 7, 8, 30),
     frequency = c(12, 10, 10, 8, 1)
   )
 
   expect_error(
-    mcdOutliersRrcovHD(df),
+    weightedMahalanobisOutliers(df),
     "No feature columns available. Provide `featureColumns` explicitly."
   )
 })

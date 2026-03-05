@@ -287,52 +287,49 @@ modifiedZScoreOutliers <- function(df,
   out
 }
 
-#' Identify outliers using robust Mahalanobis distance (MCD) via rrcovHD
+#' Identify outliers using weighted Mahalanobis distance
 #'
-#' Fits a robust multivariate outlier detector with `rrcovHD::OutlierMahdist`
-#' using MCD (`control = "mcd"` by default). Because the package methods in this
-#' package accept value-frequency input, this function expands rows by
-#' `frequency` to fit and score observations, then aggregates scores back to the
-#' original rows.
+#' Computes Mahalanobis distance from a frequency-weighted multivariate center
+#' and covariance matrix, without expanding rows by `frequency`. A small
+#' diagonal regularization term is added to stabilize covariance inversion for
+#' near-singular designs. Outliers are flagged by a chi-square distance cutoff.
 #'
-#' Assumptions: feature columns are numeric and represent a multivariate
-#' observation profile for each row; frequencies are non-negative integer counts.
+#' Assumptions: feature columns are numeric, frequencies are non-negative
+#' integer counts interpreted as case weights, and the inlier distribution is
+#' approximately ellipsoidal.
 #'
 #' @param df A data.frame containing value/frequency columns and feature columns.
 #' @param valueColumn Name of the column in `df` that holds numeric values.
 #' @param frequencyColumn Name of the column in `df` that holds numeric
 #'   frequency counts.
-#' @param featureColumns Character vector of column names to use as multivariate
-#'   features. If `NULL`, all columns except `valueColumn` and `frequencyColumn`
-#'   are used.
-#' @param control Estimator choice/control for `rrcovHD::OutlierMahdist`.
-#'   Defaults to `"mcd"`.
-#' @param trace Logical; passed to `rrcovHD::OutlierMahdist`.
-#' @param ... Additional arguments passed to `rrcovHD::OutlierMahdist`.
+#' @param featureColumns Character vector of feature column names. If `NULL`,
+#'   all columns except `valueColumn` and `frequencyColumn` are used.
+#' @param tailProb Upper-tail probability used for chi-square cutoff in `(0, 1)`.
+#' @param regularization Non-negative diagonal ridge term added to covariance
+#'   before inversion.
 #'
-#' @return A data.frame with `robustDistance`, `distanceCutoff`,
+#' @return A data.frame with `weightedMahalanobisDistance`, `distanceCutoff`,
 #'   `outlierProportion`, and `isOutlier` columns appended.
 #' @export
-mcdOutliersRrcovHD <- function(df,
-                               valueColumn = "value",
-                               frequencyColumn = "frequency",
-                               featureColumns = NULL,
-                               control = "mcd",
-                               trace = FALSE,
-                               ...) {
+weightedMahalanobisOutliers <- function(df,
+                                        valueColumn = "value",
+                                        frequencyColumn = "frequency",
+                                        featureColumns = NULL,
+                                        tailProb = 0.99,
+                                        regularization = 1e-8) {
   .validateValueFrequencyDf(
     df = df,
     valueColumn = valueColumn,
     frequencyColumn = frequencyColumn
   )
-  if (!requireNamespace("rrcovHD", quietly = TRUE)) {
-    stop("Package `rrcovHD` is required. Please install it.")
-  }
   if (!is.null(featureColumns) && (!is.character(featureColumns) || length(featureColumns) < 1)) {
     stop("`featureColumns` must be NULL or a non-empty character vector.")
   }
-  if (!is.logical(trace) || length(trace) != 1) {
-    stop("`trace` must be TRUE or FALSE.")
+  if (!is.numeric(tailProb) || length(tailProb) != 1 || tailProb <= 0 || tailProb >= 1) {
+    stop("`tailProb` must be a single number in (0, 1).")
+  }
+  if (!is.numeric(regularization) || length(regularization) != 1 || regularization < 0) {
+    stop("`regularization` must be a single non-negative number.")
   }
 
   if (is.null(featureColumns)) {
@@ -356,44 +353,48 @@ mcdOutliersRrcovHD <- function(df,
   if (length(positiveIdx) < 2) {
     stop("Need at least 2 rows with positive frequency for multivariate fitting.")
   }
-
   if (anyNA(featuresDf[positiveIdx, , drop = FALSE])) {
     stop("Feature columns cannot contain NA for rows with positive frequency.")
   }
 
-  expandedRowIndex <- rep(seq_len(nrow(df)), frequencies)
-  expandedFeatures <- as.matrix(featuresDf[expandedRowIndex, , drop = FALSE])
+  x <- as.matrix(featuresDf[positiveIdx, , drop = FALSE])
+  w <- as.numeric(frequencies[positiveIdx])
+  totalWeight <- sum(w)
+  if (totalWeight <= 1) {
+    stop("Total positive frequency must be > 1 for covariance estimation.")
+  }
 
-  fit <- rrcovHD::OutlierMahdist(
-    x = expandedFeatures,
-    control = control,
-    trace = trace,
-    ...
+  center <- colSums(x * w) / totalWeight
+  xCentered <- sweep(x, 2, center, "-")
+  weightedXCentered <- xCentered * sqrt(w)
+  covariance <- crossprod(weightedXCentered) / (totalWeight - 1)
+
+  p <- ncol(x)
+  diagScale <- max(1, mean(diag(covariance)))
+  covarianceReg <- covariance + diag(regularization * diagScale, p)
+
+  covarianceInv <- tryCatch(
+    solve(covarianceReg),
+    error = function(e) {
+      sv <- svd(covarianceReg)
+      tol <- max(dim(covarianceReg)) * max(sv$d) * .Machine$double.eps
+      dInv <- ifelse(sv$d > tol, 1 / sv$d, 0)
+      sv$v %*% diag(dInv, length(dInv)) %*% t(sv$u)
+    }
   )
 
-  distanceExpanded <- as.numeric(rrcovHD::getDistance(fit))
-  cutoffExpanded <- as.numeric(rrcovHD::getCutoff(fit))
-  if (length(cutoffExpanded) == 1) {
-    cutoffExpanded <- rep(cutoffExpanded, length(distanceExpanded))
-  }
-  flagExpanded <- as.numeric(distanceExpanded > cutoffExpanded)
+  distanceSqPositive <- rowSums((xCentered %*% covarianceInv) * xCentered)
+  distanceSqPositive <- pmax(distanceSqPositive, 0)
+  cutoffSq <- stats::qchisq(tailProb, df = p)
 
-  robustDistance <- rep(NA_real_, nrow(df))
-  distanceCutoff <- rep(NA_real_, nrow(df))
+  weightedMahalanobisDistance <- rep(NA_real_, nrow(df))
   outlierProportion <- rep(0, nrow(df))
-
-  robustDistanceByRow <- tapply(distanceExpanded, expandedRowIndex, mean)
-  distanceCutoffByRow <- tapply(cutoffExpanded, expandedRowIndex, mean)
-  outlierPropByRow <- tapply(flagExpanded, expandedRowIndex, mean)
-
-  idx <- as.integer(names(robustDistanceByRow))
-  robustDistance[idx] <- as.numeric(robustDistanceByRow)
-  distanceCutoff[idx] <- as.numeric(distanceCutoffByRow)
-  outlierProportion[idx] <- as.numeric(outlierPropByRow)
+  weightedMahalanobisDistance[positiveIdx] <- sqrt(distanceSqPositive)
+  outlierProportion[positiveIdx] <- as.numeric(distanceSqPositive > cutoffSq)
 
   out <- df
-  out$robustDistance <- robustDistance
-  out$distanceCutoff <- distanceCutoff
+  out$weightedMahalanobisDistance <- weightedMahalanobisDistance
+  out$distanceCutoff <- sqrt(cutoffSq)
   out$outlierProportion <- outlierProportion
   out$isOutlier <- outlierProportion > 0
 
