@@ -56,3 +56,43 @@ test_that("input validator rejects malformed data", {
   badFreq <- data.frame(value = c(1, 2, 3), frequency = c(1, -1, 2))
   expect_error(summarizeValueFrequency(badFreq), "`frequency` values must be >= 0.")
 })
+
+test_that("mcdOutliersRrcovHD flags known multivariate outlier from value-frequency data", {
+  skip_if_not_installed("rrcovHD")
+
+  path <- system.file("extdata", "mcd_test_data.csv", package = "AnomalyDetectionMethods")
+  if (!nzchar(path)) {
+    path <- testthat::test_path("..", "..", "inst", "extdata", "mcd_test_data.csv")
+  }
+  expect_true(file.exists(path))
+
+  df <- read.csv(path, stringsAsFactors = FALSE)
+  out <- mcdOutliersRrcovHD(
+    df = df,
+    valueColumn = "value",
+    frequencyColumn = "frequency",
+    featureColumns = c("featureA", "featureB", "featureC"),
+    control = "mcd"
+  )
+
+  expect_s3_class(out, "data.frame")
+  expect_equal(nrow(out), nrow(df))
+  expect_true(all(c("robustDistance", "distanceCutoff", "outlierProportion", "isOutlier") %in% names(out)))
+  expect_true(is.logical(out$isOutlier))
+  expect_true(out$isOutlier[df$value == 40])
+  expect_gt(out$outlierProportion[df$value == 40], 0)
+})
+
+test_that("mcdOutliersRrcovHD errors for default value-frequency data without feature columns", {
+  skip_if_not_installed("rrcovHD")
+
+  df <- data.frame(
+    value = c(5, 6, 7, 8, 30),
+    frequency = c(12, 10, 10, 8, 1)
+  )
+
+  expect_error(
+    mcdOutliersRrcovHD(df),
+    "No feature columns available. Provide `featureColumns` explicitly."
+  )
+})

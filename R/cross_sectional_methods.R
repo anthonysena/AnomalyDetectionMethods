@@ -287,6 +287,119 @@ modifiedZScoreOutliers <- function(df,
   out
 }
 
+#' Identify outliers using robust Mahalanobis distance (MCD) via rrcovHD
+#'
+#' Fits a robust multivariate outlier detector with `rrcovHD::OutlierMahdist`
+#' using MCD (`control = "mcd"` by default). Because the package methods in this
+#' package accept value-frequency input, this function expands rows by
+#' `frequency` to fit and score observations, then aggregates scores back to the
+#' original rows.
+#'
+#' Assumptions: feature columns are numeric and represent a multivariate
+#' observation profile for each row; frequencies are non-negative integer counts.
+#'
+#' @param df A data.frame containing value/frequency columns and feature columns.
+#' @param valueColumn Name of the column in `df` that holds numeric values.
+#' @param frequencyColumn Name of the column in `df` that holds numeric
+#'   frequency counts.
+#' @param featureColumns Character vector of column names to use as multivariate
+#'   features. If `NULL`, all columns except `valueColumn` and `frequencyColumn`
+#'   are used.
+#' @param control Estimator choice/control for `rrcovHD::OutlierMahdist`.
+#'   Defaults to `"mcd"`.
+#' @param trace Logical; passed to `rrcovHD::OutlierMahdist`.
+#' @param ... Additional arguments passed to `rrcovHD::OutlierMahdist`.
+#'
+#' @return A data.frame with `robustDistance`, `distanceCutoff`,
+#'   `outlierProportion`, and `isOutlier` columns appended.
+#' @export
+mcdOutliersRrcovHD <- function(df,
+                               valueColumn = "value",
+                               frequencyColumn = "frequency",
+                               featureColumns = NULL,
+                               control = "mcd",
+                               trace = FALSE,
+                               ...) {
+  .validateValueFrequencyDf(
+    df = df,
+    valueColumn = valueColumn,
+    frequencyColumn = frequencyColumn
+  )
+  if (!requireNamespace("rrcovHD", quietly = TRUE)) {
+    stop("Package `rrcovHD` is required. Please install it.")
+  }
+  if (!is.null(featureColumns) && (!is.character(featureColumns) || length(featureColumns) < 1)) {
+    stop("`featureColumns` must be NULL or a non-empty character vector.")
+  }
+  if (!is.logical(trace) || length(trace) != 1) {
+    stop("`trace` must be TRUE or FALSE.")
+  }
+
+  if (is.null(featureColumns)) {
+    featureColumns <- setdiff(names(df), c(valueColumn, frequencyColumn))
+  }
+  if (length(featureColumns) < 1) {
+    stop("No feature columns available. Provide `featureColumns` explicitly.")
+  }
+  if (!all(featureColumns %in% names(df))) {
+    missing <- setdiff(featureColumns, names(df))
+    stop(paste0("Missing feature columns: ", paste(missing, collapse = ", "), "."))
+  }
+
+  featuresDf <- df[, featureColumns, drop = FALSE]
+  if (!all(vapply(featuresDf, is.numeric, logical(1)))) {
+    stop("All `featureColumns` must be numeric.")
+  }
+
+  frequencies <- df[[frequencyColumn]]
+  positiveIdx <- which(frequencies > 0)
+  if (length(positiveIdx) < 2) {
+    stop("Need at least 2 rows with positive frequency for multivariate fitting.")
+  }
+
+  if (anyNA(featuresDf[positiveIdx, , drop = FALSE])) {
+    stop("Feature columns cannot contain NA for rows with positive frequency.")
+  }
+
+  expandedRowIndex <- rep(seq_len(nrow(df)), frequencies)
+  expandedFeatures <- as.matrix(featuresDf[expandedRowIndex, , drop = FALSE])
+
+  fit <- rrcovHD::OutlierMahdist(
+    x = expandedFeatures,
+    control = control,
+    trace = trace,
+    ...
+  )
+
+  distanceExpanded <- as.numeric(rrcovHD::getDistance(fit))
+  cutoffExpanded <- as.numeric(rrcovHD::getCutoff(fit))
+  if (length(cutoffExpanded) == 1) {
+    cutoffExpanded <- rep(cutoffExpanded, length(distanceExpanded))
+  }
+  flagExpanded <- as.numeric(distanceExpanded > cutoffExpanded)
+
+  robustDistance <- rep(NA_real_, nrow(df))
+  distanceCutoff <- rep(NA_real_, nrow(df))
+  outlierProportion <- rep(0, nrow(df))
+
+  robustDistanceByRow <- tapply(distanceExpanded, expandedRowIndex, mean)
+  distanceCutoffByRow <- tapply(cutoffExpanded, expandedRowIndex, mean)
+  outlierPropByRow <- tapply(flagExpanded, expandedRowIndex, mean)
+
+  idx <- as.integer(names(robustDistanceByRow))
+  robustDistance[idx] <- as.numeric(robustDistanceByRow)
+  distanceCutoff[idx] <- as.numeric(distanceCutoffByRow)
+  outlierProportion[idx] <- as.numeric(outlierPropByRow)
+
+  out <- df
+  out$robustDistance <- robustDistance
+  out$distanceCutoff <- distanceCutoff
+  out$outlierProportion <- outlierProportion
+  out$isOutlier <- outlierProportion > 0
+
+  out
+}
+
 #' Identify outliers using generalized ESD
 #'
 #' Applies the generalized ESD (Extreme Studentized Deviate) test to a
