@@ -2,6 +2,7 @@
 
 export(cooksDistanceOutliers)
 export(generalizedESDOutliers)
+export(isolationForestOutliers)
 export(localOutlierFactorOutliers)
 export(modifiedZScoreOutliers)
 export(plotWeightedDensity)
