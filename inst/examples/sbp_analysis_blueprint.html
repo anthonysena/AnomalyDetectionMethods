@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>SBP Analysis Blueprint For LOF, Isolation Forest, and GAD</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="sbp_analysis_blueprint_files/libs/clipboard/clipboard.min.js"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/popper.min.js"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="sbp_analysis_blueprint_files/libs/quarto-html/anchor.min.js"></script>
+<link href="sbp_analysis_blueprint_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="sbp_analysis_blueprint_files/libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="sbp_analysis_blueprint_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="sbp_analysis_blueprint_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="sbp_analysis_blueprint_files/libs/bootstrap/bootstrap-9e3ffae467580fdb927a41352e75a2e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#proposed-dataset-schema" id="toc-proposed-dataset-schema" class="nav-link active" data-scroll-target="#proposed-dataset-schema">Proposed Dataset Schema</a></li>
+  <li><a href="#preprocessing-steps" id="toc-preprocessing-steps" class="nav-link" data-scroll-target="#preprocessing-steps">Preprocessing Steps</a></li>
+  <li><a href="#stratum-diagnostics" id="toc-stratum-diagnostics" class="nav-link" data-scroll-target="#stratum-diagnostics">Stratum Diagnostics</a></li>
+  <li><a href="#first-pass-modeling-workflow" id="toc-first-pass-modeling-workflow" class="nav-link" data-scroll-target="#first-pass-modeling-workflow">First-Pass Modeling Workflow</a>
+  <ul class="collapse">
+  <li><a href="#lof" id="toc-lof" class="nav-link" data-scroll-target="#lof">LOF</a></li>
+  <li><a href="#isolation-forest" id="toc-isolation-forest" class="nav-link" data-scroll-target="#isolation-forest">Isolation Forest</a></li>
+  <li><a href="#gaussian-anomaly-detection" id="toc-gaussian-anomaly-detection" class="nav-link" data-scroll-target="#gaussian-anomaly-detection">Gaussian Anomaly Detection</a></li>
+  </ul></li>
+  <li><a href="#compare-the-first-pass-results" id="toc-compare-the-first-pass-results" class="nav-link" data-scroll-target="#compare-the-first-pass-results">Compare The First-Pass Results</a></li>
+  <li><a href="#recommended-workflow-for-real-sbp-data" id="toc-recommended-workflow-for-real-sbp-data" class="nav-link" data-scroll-target="#recommended-workflow-for-real-sbp-data">Recommended Workflow For Real SBP Data</a></li>
+  <li><a href="#practical-caution" id="toc-practical-caution" class="nav-link" data-scroll-target="#practical-caution">Practical Caution</a></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">SBP Analysis Blueprint For LOF, Isolation Forest, and GAD</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>report_dir <span class="ot">&lt;-</span> <span class="fu">dirname</span>(knitr<span class="sc">::</span><span class="fu">current_input</span>(<span class="at">dir =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>project_dir <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">file.path</span>(report_dir, <span class="st">".."</span>, <span class="st">".."</span>), <span class="at">winslash =</span> <span class="st">"/"</span>, <span class="at">mustWork =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="st">"package:AnomalyDetectionMethods"</span> <span class="sc">%in%</span> <span class="fu">search</span>()) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">requireNamespace</span>(<span class="st">"devtools"</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>)) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    devtools<span class="sc">::</span><span class="fu">load_all</span>(project_dir)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"Install `devtools` or load `AnomalyDetectionMethods` before rendering this report."</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>demo_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(project_dir, <span class="st">"inst"</span>, <span class="st">"extdata"</span>, <span class="st">"sbp_strata_demo.csv"</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(demo_path)) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  demo_path <span class="ot">&lt;-</span> <span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sbp_strata_demo.csv"</span>, <span class="at">package =</span> <span class="st">"AnomalyDetectionMethods"</span>)</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>sbp_df <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(demo_path, <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>sbp_df</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>   site gender ageBand ageMid value frequency
+1     A      F   35-39     37   108         8
+2     A      F   35-39     37   118        14
+3     A      F   35-39     37   128         9
+4     A      F   40-44     42   110        10
+5     A      F   40-44     42   120        18
+6     A      F   40-44     42   130        10
+7     A      F   45-49     47   112         9
+8     A      F   45-49     47   122        16
+9     A      F   45-49     47   132         9
+10    A      M   35-39     37   112         7
+11    A      M   35-39     37   122        12
+12    A      M   35-39     37   132         7
+13    A      M   40-44     42   114         8
+14    A      M   40-44     42   124        13
+15    A      M   40-44     42   134         8
+16    B      F   35-39     37   106         2
+17    B      F   35-39     37   116         3
+18    B      F   35-39     37   126         2
+19    B      F   40-44     42   108         3
+20    B      F   40-44     42   118         5
+21    B      F   40-44     42   128         3
+22    B      M   35-39     37   110         1
+23    B      M   35-39     37   210         1
+24    B      M   40-44     42   112         1
+25    B      M   40-44     42   122         1
+26    B      M   40-44     42   132         1</code></pre>
+</div>
+</div>
+<section id="proposed-dataset-schema" class="level2">
+<h2 class="anchored" data-anchor-id="proposed-dataset-schema">Proposed Dataset Schema</h2>
+<p>Recommended row definition:</p>
+<ul>
+<li>one row per <code>SBP value x age band x gender x site</code></li>
+<li><code>value</code> is the SBP value you want to evaluate</li>
+<li><code>frequency</code> is the number of measurements with that exact SBP in that context</li>
+<li><code>ageBand</code> is the interpretable 5-year bucket</li>
+<li><code>ageMid</code> is the numeric midpoint used as a feature when you want age to remain in the model</li>
+<li><code>gender</code> and <code>site</code> are used for stratification rather than numeric distance calculations</li>
+</ul>
+<p>In this framing, the anomaly detectors should generally use:</p>
+<ul>
+<li><code>featureColumns = c("value", "ageMid")</code></li>
+</ul>
+<p>within a chosen <code>(site, gender)</code> stratum.</p>
+</section>
+<section id="preprocessing-steps" class="level2">
+<h2 class="anchored" data-anchor-id="preprocessing-steps">Preprocessing Steps</h2>
+<ol type="1">
+<li>Restrict to the intended blood-pressure measurement concept and unit.</li>
+<li>Remove implausible or clearly miscoded values if you want to focus on distributional anomalies rather than impossible values.</li>
+<li>Bin age into 5-year bands for interpretability and create <code>ageMid</code> for modeling.</li>
+<li>Standardize site and gender values.</li>
+<li>Aggregate to the row definition above.</li>
+<li>Run stratum diagnostics before fitting anomaly detectors.</li>
+</ol>
+</section>
+<section id="stratum-diagnostics" class="level2">
+<h2 class="anchored" data-anchor-id="stratum-diagnostics">Stratum Diagnostics</h2>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>strata_diag <span class="ot">&lt;-</span> <span class="fu">summarizeStrataDiagnostics</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  sbp_df,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">strataColumns =</span> <span class="fu">c</span>(<span class="st">"site"</span>, <span class="st">"gender"</span>),</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">valueColumn =</span> <span class="st">"value"</span>,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">frequencyColumn =</span> <span class="st">"frequency"</span>,</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">kValues =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">5</span>, <span class="dv">10</span>),</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">featureColumns =</span> <span class="st">"ageMid"</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>strata_diag</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>    site gender distinctValues totalFrequency meanFrequencyPerValue
+A.F    A      F              9            103             11.444444
+A.M    A      M              6             55              9.166667
+B.F    B      F              6             18              3.000000
+B.M    B      M              5              5              1.000000
+    medianFrequencyPerValue maxFrequency singleCountValues  top1Mass  top5Mass
+A.F                      10           18                 0 0.1747573 0.6601942
+A.M                       8           13                 0 0.2363636 0.8727273
+B.F                       3            5                 0 0.2777778 0.8888889
+B.M                       1            1                 5 0.2000000 1.0000000
+    top10Mass  entropy effectiveValueCount weightedMean weightedSd
+A.F         1 2.155630            8.633326     120.1553   7.450493
+A.M         1 1.758660            5.804654     123.0545   7.452683
+B.F         1 1.739967            5.697154     117.2222   7.517059
+B.M         1 1.609438            5.000000     137.2000  37.236541
+    weightedMedian weightedIqr valueRange weightedMad propMassAtMode
+A.F            120          16         24           8      0.1747573
+A.M            124          18         22           8      0.2363636
+B.F            118          18         22           8      0.2777778
+B.M            122          20        100          10      0.2000000
+    propValuesWithFrequency1 propMassInRepeatedValues propEndingIn0
+A.F                        0                        1      0.368932
+A.M                        0                        1      0.000000
+B.F                        0                        1      0.000000
+B.M                        1                        0      0.400000
+    propEndingIn5 propEndingIn0or5 distinctToTotalRatio supportsK_3 supportsK_5
+A.F             0         0.368932           0.08737864        TRUE        TRUE
+A.M             0         0.000000           0.10909091        TRUE        TRUE
+B.F             0         0.000000           0.33333333        TRUE        TRUE
+B.M             0         0.400000           1.00000000        TRUE       FALSE
+    supportsK_10 featureCount hasZeroVarianceFeature maxAbsCorrelation
+A.F        FALSE            1                  FALSE                NA
+A.M        FALSE            1                  FALSE                NA
+B.F        FALSE            1                  FALSE                NA
+B.M        FALSE            1                  FALSE                NA</code></pre>
+</div>
+</div>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>flagged_strata <span class="ot">&lt;-</span> <span class="fu">flagAnalyzableStrata</span>(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  strata_diag,</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">minDistinctValues =</span> <span class="dv">6</span>,</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">minTotalFrequency =</span> <span class="dv">20</span>,</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">lofK =</span> <span class="dv">5</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>flagged_strata</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>    site gender distinctValues totalFrequency meanFrequencyPerValue
+A.F    A      F              9            103             11.444444
+A.M    A      M              6             55              9.166667
+B.F    B      F              6             18              3.000000
+B.M    B      M              5              5              1.000000
+    medianFrequencyPerValue maxFrequency singleCountValues  top1Mass  top5Mass
+A.F                      10           18                 0 0.1747573 0.6601942
+A.M                       8           13                 0 0.2363636 0.8727273
+B.F                       3            5                 0 0.2777778 0.8888889
+B.M                       1            1                 5 0.2000000 1.0000000
+    top10Mass  entropy effectiveValueCount weightedMean weightedSd
+A.F         1 2.155630            8.633326     120.1553   7.450493
+A.M         1 1.758660            5.804654     123.0545   7.452683
+B.F         1 1.739967            5.697154     117.2222   7.517059
+B.M         1 1.609438            5.000000     137.2000  37.236541
+    weightedMedian weightedIqr valueRange weightedMad propMassAtMode
+A.F            120          16         24           8      0.1747573
+A.M            124          18         22           8      0.2363636
+B.F            118          18         22           8      0.2777778
+B.M            122          20        100          10      0.2000000
+    propValuesWithFrequency1 propMassInRepeatedValues propEndingIn0
+A.F                        0                        1      0.368932
+A.M                        0                        1      0.000000
+B.F                        0                        1      0.000000
+B.M                        1                        0      0.400000
+    propEndingIn5 propEndingIn0or5 distinctToTotalRatio supportsK_3 supportsK_5
+A.F             0         0.368932           0.08737864        TRUE        TRUE
+A.M             0         0.000000           0.10909091        TRUE        TRUE
+B.F             0         0.000000           0.33333333        TRUE        TRUE
+B.M             0         0.400000           1.00000000        TRUE       FALSE
+    supportsK_10 featureCount hasZeroVarianceFeature maxAbsCorrelation
+A.F        FALSE            1                  FALSE                NA
+A.M        FALSE            1                  FALSE                NA
+B.F        FALSE            1                  FALSE                NA
+B.M        FALSE            1                  FALSE                NA
+    usableForLof usableForIf usableForGad
+A.F         TRUE       FALSE        FALSE
+A.M         TRUE       FALSE        FALSE
+B.F        FALSE       FALSE        FALSE
+B.M        FALSE       FALSE        FALSE</code></pre>
+</div>
+</div>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plotStratumDiagnostics</span>(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  flagged_strata,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">xColumn =</span> <span class="st">"totalFrequency"</span>,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">yColumn =</span> <span class="st">"distinctValues"</span>,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">colorColumn =</span> <span class="st">"usableForLof"</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="sbp_analysis_blueprint_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>How to read this:</p>
+<ul>
+<li><code>distinctValues</code> tells you whether the stratum has enough SBP support points.</li>
+<li><code>totalFrequency</code> tells you whether the stratum has enough mass to be worth modeling.</li>
+<li><code>top1Mass</code> and <code>top5Mass</code> tell you whether the distribution is overly concentrated.</li>
+<li><code>supportsK_*</code> tells you whether candidate LOF neighborhood sizes are even plausible.</li>
+<li><code>usableForLof</code>, <code>usableForIf</code>, and <code>usableForGad</code> are first-pass readiness flags, not guarantees.</li>
+</ul>
+</section>
+<section id="first-pass-modeling-workflow" class="level2">
+<h2 class="anchored" data-anchor-id="first-pass-modeling-workflow">First-Pass Modeling Workflow</h2>
+<p>For a first proof of concept, select a stratum that looks analyzable. Here we use Site A / Female.</p>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>analysis_df <span class="ot">&lt;-</span> <span class="fu">subset</span>(sbp_df, site <span class="sc">==</span> <span class="st">"A"</span> <span class="sc">&amp;</span> gender <span class="sc">==</span> <span class="st">"F"</span>)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>analysis_df</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>  site gender ageBand ageMid value frequency
+1    A      F   35-39     37   108         8
+2    A      F   35-39     37   118        14
+3    A      F   35-39     37   128         9
+4    A      F   40-44     42   110        10
+5    A      F   40-44     42   120        18
+6    A      F   40-44     42   130        10
+7    A      F   45-49     47   112         9
+8    A      F   45-49     47   122        16
+9    A      F   45-49     47   132         9</code></pre>
+</div>
+</div>
+<p>Use SBP value itself plus age midpoint as the numeric feature space:</p>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>feature_columns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"value"</span>, <span class="st">"ageMid"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<section id="lof" class="level3">
+<h3 class="anchored" data-anchor-id="lof">LOF</h3>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>lof_out <span class="ot">&lt;-</span> <span class="fu">localOutlierFactorOutliers</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  analysis_df,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">featureColumns =</span> feature_columns,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">k =</span> <span class="dv">3</span>,</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">scoreCutoff =</span> <span class="fl">1.3</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>lof_out</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>  site gender ageBand ageMid value frequency localOutlierFactor kDistance
+1    A      F   35-39     37   108         8                  1         0
+2    A      F   35-39     37   118        14                  1         0
+3    A      F   35-39     37   128         9                  1         0
+4    A      F   40-44     42   110        10                  1         0
+5    A      F   40-44     42   120        18                  1         0
+6    A      F   40-44     42   130        10                  1         0
+7    A      F   45-49     47   112         9                  1         0
+8    A      F   45-49     47   122        16                  1         0
+9    A      F   45-49     47   132         9                  1         0
+  localReachabilityDensity scoreCutoff outlierProportion isOutlier
+1                      Inf         1.3                 0     FALSE
+2                      Inf         1.3                 0     FALSE
+3                      Inf         1.3                 0     FALSE
+4                      Inf         1.3                 0     FALSE
+5                      Inf         1.3                 0     FALSE
+6                      Inf         1.3                 0     FALSE
+7                      Inf         1.3                 0     FALSE
+8                      Inf         1.3                 0     FALSE
+9                      Inf         1.3                 0     FALSE</code></pre>
+</div>
+</div>
+</section>
+<section id="isolation-forest" class="level3">
+<h3 class="anchored" data-anchor-id="isolation-forest">Isolation Forest</h3>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>if_out <span class="ot">&lt;-</span> <span class="fu">isolationForestOutliers</span>(</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  analysis_df,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">featureColumns =</span> feature_columns,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">ntrees =</span> <span class="dv">300</span>,</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">sampleSize =</span> <span class="fu">nrow</span>(analysis_df),</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">scoreCutoff =</span> <span class="fl">0.6</span>,</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">weightsAsSampleProb =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="dv">123</span>,</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">nthreads =</span> <span class="dv">1</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>if_out</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>  site gender ageBand ageMid value frequency isolationForestScore scoreCutoff
+1    A      F   35-39     37   108         8            0.5857105         0.6
+2    A      F   35-39     37   118        14            0.4929675         0.6
+3    A      F   35-39     37   128         9            0.5444384         0.6
+4    A      F   40-44     42   110        10            0.5206223         0.6
+5    A      F   40-44     42   120        18            0.4226134         0.6
+6    A      F   40-44     42   130        10            0.5127424         0.6
+7    A      F   45-49     47   112         9            0.5498872         0.6
+8    A      F   45-49     47   122        16            0.4722477         0.6
+9    A      F   45-49     47   132         9            0.5677649         0.6
+  outlierProportion isOutlier
+1                 0     FALSE
+2                 0     FALSE
+3                 0     FALSE
+4                 0     FALSE
+5                 0     FALSE
+6                 0     FALSE
+7                 0     FALSE
+8                 0     FALSE
+9                 0     FALSE</code></pre>
+</div>
+</div>
+</section>
+<section id="gaussian-anomaly-detection" class="level3">
+<h3 class="anchored" data-anchor-id="gaussian-anomaly-detection">Gaussian Anomaly Detection</h3>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>gad_out <span class="ot">&lt;-</span> <span class="fu">gaussianAnomalyOutliers</span>(</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  analysis_df,</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">featureColumns =</span> feature_columns,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">transformMethod =</span> <span class="st">"weighted_zscore"</span>,</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">covarianceMethod =</span> <span class="st">"classical"</span>,</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">tailProb =</span> <span class="fl">0.99</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>gad_out</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>  site gender ageBand ageMid value frequency gaussianLogDensity gaussianDensity
+1    A      F   35-39     37   108         8          -3.636735      0.02633819
+2    A      F   35-39     37   118        14          -2.660737      0.06989667
+3    A      F   35-39     37   128         9          -3.540162      0.02900862
+4    A      F   40-44     42   110        10          -2.775348      0.06232776
+5    A      F   40-44     42   120        18          -1.828766      0.16061163
+6    A      F   40-44     42   130        10          -2.737607      0.06472504
+7    A      F   45-49     47   112         9          -3.485771      0.03063014
+8    A      F   45-49     47   122        16          -2.568604      0.07664244
+9    A      F   45-49     47   132         9          -3.506861      0.02999090
+  mahalanobisDistance distanceCutoff outlierProportion isOutlier
+1          1.90196312       3.034854                 0     FALSE
+2          1.29052985       3.034854                 0     FALSE
+3          1.85049118       3.034854                 0     FALSE
+4          1.37647721       3.034854                 0     FALSE
+5          0.03905062       3.034854                 0     FALSE
+6          1.34877987       3.034854                 0     FALSE
+7          1.82086084       3.034854                 0     FALSE
+8          1.21704622       3.034854                 0     FALSE
+9          1.83240704       3.034854                 0     FALSE</code></pre>
+</div>
+</div>
+</section>
+</section>
+<section id="compare-the-first-pass-results" class="level2">
+<h2 class="anchored" data-anchor-id="compare-the-first-pass-results">Compare The First-Pass Results</h2>
+<div class="cell">
+<details open="" class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">compareAnomalyResults</span>(</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">lof =</span> lof_out,</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">isolation_forest =</span> if_out,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">gaussian =</span> gad_out</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>  value frequency lof_score lof_flag isolation_forest_score
+1   108         8         1    FALSE              0.5857105
+2   118        14         1    FALSE              0.4929675
+3   128         9         1    FALSE              0.5444384
+4   110        10         1    FALSE              0.5206223
+5   120        18         1    FALSE              0.4226134
+6   130        10         1    FALSE              0.5127424
+7   112         9         1    FALSE              0.5498872
+8   122        16         1    FALSE              0.4722477
+9   132         9         1    FALSE              0.5677649
+  isolation_forest_flag gaussian_score gaussian_flag consensusCount
+1                 FALSE     1.90196312         FALSE              0
+2                 FALSE     1.29052985         FALSE              0
+3                 FALSE     1.85049118         FALSE              0
+4                 FALSE     1.37647721         FALSE              0
+5                 FALSE     0.03905062         FALSE              0
+6                 FALSE     1.34877987         FALSE              0
+7                 FALSE     1.82086084         FALSE              0
+8                 FALSE     1.21704622         FALSE              0
+9                 FALSE     1.83240704         FALSE              0</code></pre>
+</div>
+</div>
+</section>
+<section id="recommended-workflow-for-real-sbp-data" class="level2">
+<h2 class="anchored" data-anchor-id="recommended-workflow-for-real-sbp-data">Recommended Workflow For Real SBP Data</h2>
+<ol type="1">
+<li>Build the aggregated SBP dataset at <code>value x age band x gender x site</code>.</li>
+<li>Run <code>summarizeStrataDiagnostics()</code> across <code>(site, gender)</code> strata.</li>
+<li>Use <code>flagAnalyzableStrata()</code> to identify strata that are large and varied enough to support modeling.</li>
+<li>Within usable strata, run LOF, IF, and GAD on <code>c("value", "ageMid")</code>.</li>
+<li>Use the existing tuning helpers to assess stability of:
+<ul>
+<li>LOF across <code>k</code></li>
+<li>IF across <code>ntrees</code>, <code>sampleSize</code>, and seeds</li>
+<li>GAD across preprocessing and covariance choices</li>
+</ul></li>
+<li>Prioritize rows flagged consistently across methods or consistently across nearby settings.</li>
+</ol>
+</section>
+<section id="practical-caution" class="level2">
+<h2 class="anchored" data-anchor-id="practical-caution">Practical Caution</h2>
+<p>If you stratify by <code>site</code>, <code>gender</code>, and <code>ageBand</code> all at once, then age is no longer a varying feature within the stratum. In that case, the models are effectively working on SBP values alone. If you want age to remain a feature, stratify by <code>site</code> and <code>gender</code>, and let <code>ageMid</code> vary within that stratum.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

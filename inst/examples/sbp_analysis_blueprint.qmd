@@ -1,0 +1,187 @@
+---
+title: "SBP Analysis Blueprint For LOF, Isolation Forest, and GAD"
+format:
+  html:
+    toc: true
+    code-fold: show
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+report_dir <- dirname(knitr::current_input(dir = TRUE))
+project_dir <- normalizePath(file.path(report_dir, "..", ".."), winslash = "/", mustWork = FALSE)
+
+if (!"package:AnomalyDetectionMethods" %in% search()) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all(project_dir)
+  } else {
+    stop("Install `devtools` or load `AnomalyDetectionMethods` before rendering this report.")
+  }
+}
+
+demo_path <- file.path(project_dir, "inst", "extdata", "sbp_strata_demo.csv")
+if (!file.exists(demo_path)) {
+  demo_path <- system.file("extdata", "sbp_strata_demo.csv", package = "AnomalyDetectionMethods")
+}
+sbp_df <- read.csv(demo_path, stringsAsFactors = FALSE)
+sbp_df
+```
+
+## Proposed Dataset Schema
+
+Recommended row definition:
+
+- one row per `SBP value x age band x gender x site`
+- `value` is the SBP value you want to evaluate
+- `frequency` is the number of measurements with that exact SBP in that context
+- `ageBand` is the interpretable 5-year bucket
+- `ageMid` is the numeric midpoint used as a feature when you want age to remain in the model
+- `gender` and `site` are used for stratification rather than numeric distance calculations
+
+In this framing, the anomaly detectors should generally use:
+
+- `featureColumns = c("value", "ageMid")`
+
+within a chosen `(site, gender)` stratum.
+
+## Preprocessing Steps
+
+1. Restrict to the intended blood-pressure measurement concept and unit.
+2. Remove implausible or clearly miscoded values if you want to focus on distributional anomalies rather than impossible values.
+3. Bin age into 5-year bands for interpretability and create `ageMid` for modeling.
+4. Standardize site and gender values.
+5. Aggregate to the row definition above.
+6. Run stratum diagnostics before fitting anomaly detectors.
+
+## Stratum Diagnostics
+
+```{r}
+strata_diag <- summarizeStrataDiagnostics(
+  sbp_df,
+  strataColumns = c("site", "gender"),
+  valueColumn = "value",
+  frequencyColumn = "frequency",
+  kValues = c(3, 5, 10),
+  featureColumns = "ageMid"
+)
+
+strata_diag
+```
+
+```{r}
+flagged_strata <- flagAnalyzableStrata(
+  strata_diag,
+  minDistinctValues = 6,
+  minTotalFrequency = 20,
+  lofK = 5
+)
+
+flagged_strata
+```
+
+```{r}
+plotStratumDiagnostics(
+  flagged_strata,
+  xColumn = "totalFrequency",
+  yColumn = "distinctValues",
+  colorColumn = "usableForLof"
+)
+```
+
+How to read this:
+
+- `distinctValues` tells you whether the stratum has enough SBP support points.
+- `totalFrequency` tells you whether the stratum has enough mass to be worth modeling.
+- `top1Mass` and `top5Mass` tell you whether the distribution is overly concentrated.
+- `supportsK_*` tells you whether candidate LOF neighborhood sizes are even plausible.
+- `usableForLof`, `usableForIf`, and `usableForGad` are first-pass readiness flags, not guarantees.
+
+## First-Pass Modeling Workflow
+
+For a first proof of concept, select a stratum that looks analyzable. Here we use Site A / Female.
+
+```{r}
+analysis_df <- subset(sbp_df, site == "A" & gender == "F")
+analysis_df
+```
+
+Use SBP value itself plus age midpoint as the numeric feature space:
+
+```{r}
+feature_columns <- c("value", "ageMid")
+```
+
+### LOF
+
+```{r}
+lof_out <- localOutlierFactorOutliers(
+  analysis_df,
+  featureColumns = feature_columns,
+  k = 3,
+  scoreCutoff = 1.3
+)
+
+lof_out
+```
+
+### Isolation Forest
+
+```{r}
+if_out <- isolationForestOutliers(
+  analysis_df,
+  featureColumns = feature_columns,
+  ntrees = 300,
+  sampleSize = nrow(analysis_df),
+  scoreCutoff = 0.6,
+  weightsAsSampleProb = FALSE,
+  seed = 123,
+  nthreads = 1
+)
+
+if_out
+```
+
+### Gaussian Anomaly Detection
+
+```{r}
+gad_out <- gaussianAnomalyOutliers(
+  analysis_df,
+  featureColumns = feature_columns,
+  transformMethod = "weighted_zscore",
+  covarianceMethod = "classical",
+  tailProb = 0.99
+)
+
+gad_out
+```
+
+## Compare The First-Pass Results
+
+```{r}
+compareAnomalyResults(
+  list(
+    lof = lof_out,
+    isolation_forest = if_out,
+    gaussian = gad_out
+  )
+)
+```
+
+## Recommended Workflow For Real SBP Data
+
+1. Build the aggregated SBP dataset at `value x age band x gender x site`.
+2. Run `summarizeStrataDiagnostics()` across `(site, gender)` strata.
+3. Use `flagAnalyzableStrata()` to identify strata that are large and varied enough to support modeling.
+4. Within usable strata, run LOF, IF, and GAD on `c("value", "ageMid")`.
+5. Use the existing tuning helpers to assess stability of:
+   - LOF across `k`
+   - IF across `ntrees`, `sampleSize`, and seeds
+   - GAD across preprocessing and covariance choices
+6. Prioritize rows flagged consistently across methods or consistently across nearby settings.
+
+## Practical Caution
+
+If you stratify by `site`, `gender`, and `ageBand` all at once, then age is no longer a varying feature within the stratum. In that case, the models are effectively working on SBP values alone. If you want age to remain a feature, stratify by `site` and `gender`, and let `ageMid` vary within that stratum.
