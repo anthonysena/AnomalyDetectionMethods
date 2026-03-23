@@ -2,6 +2,9 @@
 
 export(compareAnomalyResults)
 export(cooksDistanceOutliers)
+export(evaluateGadGrid)
+export(evaluateIsolationForestGrid)
+export(evaluateLofGrid)
 export(gaussianAnomalyOutliers)
 export(generalizedESDOutliers)
 export(isolationForestOutliers)

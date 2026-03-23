@@ -1,0 +1,166 @@
+---
+title: "Parameter Checks For LOF, Isolation Forest, and GAD"
+format:
+  html:
+    toc: true
+    code-fold: show
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+report_dir <- dirname(knitr::current_input(dir = TRUE))
+project_dir <- normalizePath(file.path(report_dir, "..", ".."), winslash = "/", mustWork = FALSE)
+
+if (!"package:AnomalyDetectionMethods" %in% search()) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all(project_dir)
+  } else {
+    stop("Install `devtools` or load `AnomalyDetectionMethods` before rendering this report.")
+  }
+}
+
+demo_path <- file.path(project_dir, "inst", "extdata", "anomaly_report_demo.csv")
+if (!file.exists(demo_path)) {
+  demo_path <- system.file("extdata", "anomaly_report_demo.csv", package = "AnomalyDetectionMethods")
+}
+demo_df <- read.csv(demo_path, stringsAsFactors = FALSE)
+feature_columns <- c("featureA", "featureB", "featureC")
+demo_df
+```
+
+## Goal
+
+These checks are designed to answer a practical tuning question:
+
+- Are the flagged anomalies stable when settings change a little?
+- Do different settings mostly preserve the same top-ranked rows?
+- Does the Gaussian model look plausible under a given preprocessing choice?
+
+The point is not to find a single mathematically optimal setting from unlabeled data, but to find settings that are stable, interpretable, and operationally manageable.
+
+## LOF Parameter Grid
+
+```{r}
+lof_grid <- evaluateLofGrid(
+  demo_df,
+  featureColumns = feature_columns,
+  kValues = c(3, 5, 7, 9),
+  scoreCutoffs = c(1.2, 1.4, 1.6),
+  topN = 5
+)
+
+lof_grid$summary
+```
+
+```{r}
+lof_grid$stability
+```
+
+Interpretation:
+
+- Look for `k` values that keep `topNValues` similar across nearby settings.
+- Large swings in `flagCount` or low `topNJaccard` suggest the neighborhood size is too fragile.
+- If a row remains in the top set across many `k` values, it is a stronger candidate anomaly.
+
+## Isolation Forest Parameter Grid
+
+```{r}
+if_grid <- evaluateIsolationForestGrid(
+  demo_df,
+  featureColumns = feature_columns,
+  ntreesValues = c(100, 300, 600),
+  sampleSizeValues = c(8, 12, 15),
+  scoreCutoffs = c(0.58, 0.62, 0.66),
+  seeds = c(11, 23, 47, 89),
+  topN = 5,
+  weightsAsSampleProb = FALSE,
+  nthreads = 1
+)
+
+if_grid$summary
+```
+
+```{r}
+if_grid$stability
+```
+
+Interpretation:
+
+- Higher `meanPairwiseSpearman` means the score ranking is more reproducible across seeds.
+- Higher `meanPairwiseTopJaccard` means the top anomalies are repeating more consistently.
+- Increase `ntrees` until those stability metrics stop improving materially.
+- Compare `sampleSize` values to see whether the model behaves more locally or globally.
+
+## Gaussian Anomaly Detection Grid
+
+```{r}
+gad_grid <- evaluateGadGrid(
+  demo_df,
+  featureColumns = feature_columns,
+  transformMethods = c(NA, "weighted_zscore", "log1p"),
+  covarianceMethods = c("classical", "mcd"),
+  tailProbValues = c(0.95, 0.99),
+  topN = 5,
+  mcdAlpha = 0.9
+)
+
+gad_grid$summary
+```
+
+```{r}
+gad_grid$stability
+```
+
+Interpretation:
+
+- Higher `qqCorrelation` means the ranked squared distances align better with the theoretical chi-square pattern, which is a useful Gaussian fit diagnostic.
+- If the top rows change drastically across `transformMethod` or `covarianceMethod`, then GAD is sensitive to distributional assumptions.
+- If classical and robust covariance agree on the top anomalies, confidence in those flags increases.
+
+## A Practical Selection Workflow
+
+1. Start with a broad but plausible grid.
+2. Eliminate settings with unstable top sets or highly volatile flag counts.
+3. Prefer settings where nearby choices produce similar top anomalies.
+4. For GAD, prefer transformations and covariance options with better QQ behavior and reasonable sensitivity.
+5. Choose a cutoff based on review capacity after selecting a stable scoring configuration.
+
+## Final Check On The Demo Data
+
+```{r}
+stable_lof <- localOutlierFactorOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  k = 5,
+  scoreCutoff = 1.4
+)
+stable_if <- isolationForestOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  ntrees = 600,
+  sampleSize = 12,
+  scoreCutoff = 0.62,
+  weightsAsSampleProb = FALSE,
+  seed = 123,
+  nthreads = 1
+)
+stable_gad <- gaussianAnomalyOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  transformMethod = "log1p",
+  covarianceMethod = "mcd",
+  mcdAlpha = 0.9,
+  tailProb = 0.99
+)
+
+compareAnomalyResults(
+  list(
+    lof = stable_lof,
+    isolation_forest = stable_if,
+    gaussian = stable_gad
+  )
+)
+```
