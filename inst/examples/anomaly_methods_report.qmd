@@ -1,0 +1,209 @@
+---
+title: "LOF, Isolation Forest, and Gaussian Anomaly Detection"
+format:
+  html:
+    toc: true
+    code-fold: show
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+report_dir <- dirname(knitr::current_input(dir = TRUE))
+project_dir <- normalizePath(file.path(report_dir, "..", ".."), winslash = "/", mustWork = FALSE)
+
+if (!"package:AnomalyDetectionMethods" %in% search()) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all(project_dir)
+  } else {
+    stop("Install `devtools` or load `AnomalyDetectionMethods` before rendering this report.")
+  }
+}
+
+demo_path <- file.path(project_dir, "inst", "extdata", "anomaly_report_demo.csv")
+if (!file.exists(demo_path)) {
+  demo_path <- system.file("extdata", "anomaly_report_demo.csv", package = "AnomalyDetectionMethods")
+}
+demo_df <- read.csv(demo_path, stringsAsFactors = FALSE)
+feature_columns <- c("featureA", "featureB", "featureC")
+demo_df
+```
+
+## Purpose
+
+This dataset mixes:
+
+- two dense clusters that represent valid but multimodal structure
+- one sparse local anomaly near the first cluster
+- one strong global anomaly far from both clusters
+- one heavy-tailed feature pattern through `featureC`
+
+That mix is useful for showing the practical tradeoffs:
+
+- LOF is strong at local density departures
+- Isolation Forest is strong at broad isolation-based ranking
+- Gaussian anomaly detection is easy to interpret geometrically, but is more sensitive to multimodality and shape assumptions
+
+## Fit The Models
+
+```{r}
+lof_out <- localOutlierFactorOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  k = 5,
+  scoreCutoff = 1.4
+)
+
+if_out <- isolationForestOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  ntrees = 500,
+  sampleSize = nrow(demo_df),
+  scoreCutoff = 0.62,
+  weightsAsSampleProb = FALSE,
+  seed = 123,
+  nthreads = 1
+)
+
+gad_out <- gaussianAnomalyOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  transformMethod = "log1p",
+  covarianceMethod = "classical",
+  tailProb = 0.99
+)
+
+comparison <- compareAnomalyResults(
+  results = list(
+    lof = lof_out,
+    isolation_forest = if_out,
+    gaussian = gad_out
+  )
+)
+
+comparison[order(-comparison$consensusCount, -comparison$lof_score), ]
+```
+
+## LOF
+
+LOF is most interpretable as a relative score. Values near 1 look locally typical; larger values indicate local isolation compared with neighbors.
+
+```{r}
+plotAnomalyScoreDistribution(
+  lof_out,
+  scoreColumn = "localOutlierFactor",
+  cutoffColumn = "scoreCutoff"
+)
+```
+
+```{r}
+plotAnomalyFeatureScatter(
+  lof_out,
+  xColumn = "featureA",
+  yColumn = "featureB",
+  scoreColumn = "localOutlierFactor"
+)
+```
+
+```{r}
+lof_sensitivity <- summarizeLofSensitivity(
+  demo_df,
+  featureColumns = feature_columns,
+  kValues = c(3, 5, 7),
+  scoreCutoff = 1.4
+)
+
+lof_sensitivity[, c("value", "frequency", "meanLofScore", "sdLofScore", "flagRate")]
+```
+
+## Isolation Forest
+
+Isolation Forest is most useful as a ranking model. The score ordering is often more stable than any single threshold.
+
+```{r}
+plotAnomalyRank(
+  if_out,
+  scoreColumn = "isolationForestScore",
+  cutoffColumn = "scoreCutoff"
+)
+```
+
+```{r}
+plotAnomalyPcaProjection(
+  if_out,
+  featureColumns = feature_columns,
+  scoreColumn = "isolationForestScore",
+  scale. = TRUE
+)
+```
+
+```{r}
+if_stability <- summarizeIsolationForestStability(
+  demo_df,
+  featureColumns = feature_columns,
+  seeds = c(11, 23, 47, 89),
+  ntrees = 300,
+  sampleSize = nrow(demo_df),
+  scoreCutoff = 0.62,
+  weightsAsSampleProb = FALSE,
+  nthreads = 1
+)
+
+if_stability[, c("value", "frequency", "meanIsolationForestScore", "sdIsolationForestScore", "flagRate")]
+```
+
+## Gaussian Anomaly Detection
+
+GAD communicates well through Mahalanobis distance and Gaussian density, but you should always inspect whether the Gaussian geometry is plausible.
+
+```{r}
+plotAnomalyScoreDistribution(
+  gad_out,
+  scoreColumn = "mahalanobisDistance",
+  cutoffColumn = "distanceCutoff"
+)
+```
+
+```{r}
+plotGadDistanceQQ(
+  gad_out,
+  featureColumns = feature_columns
+)
+```
+
+```{r}
+plotAnomalyPcaProjection(
+  gad_out,
+  featureColumns = feature_columns,
+  scoreColumn = "mahalanobisDistance",
+  scale. = TRUE
+)
+```
+
+```{r}
+gad_robust <- gaussianAnomalyOutliers(
+  demo_df,
+  featureColumns = feature_columns,
+  transformMethod = "log1p",
+  covarianceMethod = "mcd",
+  mcdAlpha = 0.9,
+  tailProb = 0.99
+)
+
+data.frame(
+  value = demo_df$value,
+  classical_distance = gad_out$mahalanobisDistance,
+  robust_distance = gad_robust$mahalanobisDistance,
+  classical_flag = gad_out$isOutlier,
+  robust_flag = gad_robust$isOutlier
+)
+```
+
+## Reading The Results
+
+- Rows with high LOF but moderate Gaussian distance are often local density anomalies rather than global geometric outliers.
+- Rows with high Isolation Forest score across several seeds are stable tree-based anomalies.
+- Rows that remain extreme under both classical and robust GAD are strong candidates for structural outliers rather than covariance artifacts.
+- Disagreement across methods is informative: it usually tells you whether the anomaly is local, global, or driven by shape assumptions.
