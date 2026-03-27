@@ -120,3 +120,49 @@ test_that("reporting summaries and comparison tables return expected fields", {
   ) %in% names(comparison)))
   expect_equal(nrow(comparison), nrow(df))
 })
+
+test_that("compareUnivariateOutlierResults returns score, flag, and threshold fields", {
+  df <- data.frame(
+    value = c(10, 11, 12, 13, 100),
+    frequency = c(8, 10, 10, 8, 1)
+  )
+
+  tukeyOut <- tukeyFences(df)
+  quantileOut <- quantileThresholds(df, lowerProb = 0.05, upperProb = 0.95)
+  zOut <- zScoreOutliers(df, zCutoff = 2)
+  modifiedOut <- modifiedZScoreOutliers(df, zCutoff = 2.5)
+  esdOut <- generalizedESDOutliers(df, maxOutliers = 3, alpha = 0.05)
+
+  comparison <- compareUnivariateOutlierResults(
+    list(
+      tukey = tukeyOut,
+      quantile = quantileOut,
+      zscore = zOut,
+      modified = modifiedOut,
+      esd = esdOut
+    )
+  )
+
+  expect_true(all(c(
+    "tukey_score",
+    "tukey_flag",
+    "tukey_lowerThreshold",
+    "tukey_upperThreshold",
+    "quantile_score",
+    "quantile_flag",
+    "quantile_lowerThreshold",
+    "quantile_upperThreshold",
+    "zscore_score",
+    "zscore_flag",
+    "modified_score",
+    "modified_flag",
+    "esd_score",
+    "esd_flag",
+    "consensusCount"
+  ) %in% names(comparison)))
+  expect_equal(nrow(comparison), nrow(df))
+  expect_true(comparison$tukey_score[comparison$value == 100] > 0)
+  expect_equal(comparison$zscore_score, abs(zOut$zScore))
+  expect_equal(comparison$modified_score, abs(modifiedOut$modifiedZScore))
+  expect_equal(comparison$esd_score, esdOut$outlierCount)
+})

@@ -431,6 +431,74 @@ compareAnomalyResults <- function(results,
   merged
 }
 
+#' Compare univariate outlier detection results across methods
+#'
+#' Combines several univariate detector result data frames into a single
+#' comparison table. For each method, the output includes a standardized
+#' severity score, the outlier flag, and any available threshold columns.
+#'
+#' For threshold-based methods, the severity score is the distance beyond the
+#' nearest threshold and is zero for in-threshold values. For score-based
+#' methods, the severity score is inferred from the absolute score or method-
+#' specific numeric output.
+#'
+#' @param results Named list of result data.frames.
+#' @param idColumns Character vector of columns used to align rows across
+#'   methods.
+#' @param flagColumn Name of the logical flag column shared across result data
+#'   frames.
+#'
+#' @return A data.frame with per-method score, flag, threshold columns, and a
+#'   `consensusCount` column.
+#' @export
+compareUnivariateOutlierResults <- function(results,
+                                            idColumns = c("value", "frequency"),
+                                            flagColumn = "isOutlier") {
+  if (!is.list(results) || length(results) < 1 || is.null(names(results)) || any(names(results) == "")) {
+    stop("`results` must be a named non-empty list of data.frames.")
+  }
+  if (!is.character(idColumns) || length(idColumns) < 1) {
+    stop("`idColumns` must be a non-empty character vector.")
+  }
+
+  merged <- NULL
+  flagColumns <- character(0)
+  for (methodName in names(results)) {
+    resultDf <- results[[methodName]]
+    if (!is.data.frame(resultDf)) {
+      stop("Each element of `results` must be a data.frame.")
+    }
+    if (!all(idColumns %in% names(resultDf))) {
+      stop(paste0("Result `", methodName, "` is missing required id columns."))
+    }
+    if (!flagColumn %in% names(resultDf)) {
+      stop(paste0("Result `", methodName, "` is missing flag column `", flagColumn, "`."))
+    }
+
+    components <- .extractUnivariateComparisonComponents(
+      resultDf = resultDf,
+      methodName = methodName,
+      idColumns = idColumns,
+      flagColumn = flagColumn
+    )
+
+    methodDf <- cbind(
+      resultDf[, idColumns, drop = FALSE],
+      components,
+      stringsAsFactors = FALSE
+    )
+    flagColumns <- c(flagColumns, paste0(methodName, "_flag"))
+    merged <- if (is.null(merged)) {
+      methodDf
+    } else {
+      merge(merged, methodDf, by = idColumns, all = FALSE, sort = FALSE)
+    }
+  }
+
+  merged$consensusCount <- rowSums(as.data.frame(merged[, flagColumns, drop = FALSE]))
+  merged
+}
+
 .validateReportingDf <- function(df, scoreColumn, frequencyColumn, cutoffColumn = NULL) {
   if (!is.data.frame(df)) {
     stop("`df` must be a data.frame.")
@@ -502,4 +570,50 @@ compareAnomalyResults <- function(results,
     return(NA_real_)
   }
   x[idx]
+}
+
+.extractUnivariateComparisonComponents <- function(resultDf,
+                                                   methodName,
+                                                   idColumns,
+                                                   flagColumn) {
+  valueColumn <- idColumns[1]
+  values <- resultDf[[valueColumn]]
+  scoreName <- paste0(methodName, "_score")
+  flagName <- paste0(methodName, "_flag")
+  components <- list()
+
+  if (all(c("lowerFence", "upperFence") %in% names(resultDf))) {
+    severity <- .thresholdSeverity(values, resultDf$lowerFence, resultDf$upperFence)
+    components[[scoreName]] <- severity
+    components[[paste0(methodName, "_lowerThreshold")]] <- resultDf$lowerFence
+    components[[paste0(methodName, "_upperThreshold")]] <- resultDf$upperFence
+  } else if (all(c("lowerThreshold", "upperThreshold") %in% names(resultDf))) {
+    severity <- .thresholdSeverity(values, resultDf$lowerThreshold, resultDf$upperThreshold)
+    components[[scoreName]] <- severity
+    components[[paste0(methodName, "_lowerThreshold")]] <- resultDf$lowerThreshold
+    components[[paste0(methodName, "_upperThreshold")]] <- resultDf$upperThreshold
+  } else if ("zScore" %in% names(resultDf)) {
+    components[[scoreName]] <- abs(resultDf$zScore)
+  } else if ("modifiedZScore" %in% names(resultDf)) {
+    components[[scoreName]] <- abs(resultDf$modifiedZScore)
+  } else if ("outlierCount" %in% names(resultDf)) {
+    components[[scoreName]] <- resultDf$outlierCount
+  } else {
+    numericColumns <- names(resultDf)[vapply(resultDf, is.numeric, logical(1))]
+    numericColumns <- setdiff(numericColumns, c(idColumns, "outlierProportion"))
+    numericColumns <- setdiff(numericColumns, c("lowerFence", "upperFence", "lowerThreshold", "upperThreshold"))
+    if (length(numericColumns) < 1) {
+      stop(paste0("Could not infer a score-like column for method `", methodName, "`."))
+    }
+    components[[scoreName]] <- resultDf[[numericColumns[1]]]
+  }
+
+  components[[flagName]] <- resultDf[[flagColumn]]
+  as.data.frame(components, stringsAsFactors = FALSE)
+}
+
+.thresholdSeverity <- function(values, lower, upper) {
+  below <- pmax(lower - values, 0)
+  above <- pmax(values - upper, 0)
+  pmax(below, above)
 }
