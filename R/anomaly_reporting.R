@@ -499,6 +499,156 @@ compareUnivariateOutlierResults <- function(results,
   merged
 }
 
+#' Learn plausible value ranges from univariate consensus voting
+#'
+#' Computes consensus outlier scores from the binary method flags returned by
+#' [compareUnivariateOutlierResults()] and derives plausible value ranges from
+#' the retained values. The consensus score can be based on a simple vote count,
+#' frequency-weighted votes, or support-weighted votes. Plausible ranges can be
+#' learned using weighted quantiles or raw min/max values.
+#'
+#' @param comparisonDf Optional output from [compareUnivariateOutlierResults()].
+#' @param results Optional named list of univariate result data.frames. Used only
+#'   when `comparisonDf` is `NULL`.
+#' @param valueColumn Name of the numeric value column.
+#' @param frequencyColumn Name of the numeric frequency column.
+#' @param consensusMethod One or more consensus scoring methods. Supported
+#'   values are `"count"`, `"frequency_weighted"`, and `"support_weighted"`.
+#' @param consensusThreshold Numeric threshold used to flag consensus outliers.
+#'   For `"count"`, values with score `>= consensusThreshold` are excluded. For
+#'   weighted methods, the threshold is applied to the weighted score scale.
+#' @param rangeMethod One or more range derivation methods. Supported values are
+#'   `"weighted_quantile"` and `"raw_min_max"`.
+#' @param lowerProb Lower quantile probability used when
+#'   `rangeMethod = "weighted_quantile"`.
+#' @param upperProb Upper quantile probability used when
+#'   `rangeMethod = "weighted_quantile"`.
+#'
+#' @return A list with `valueSummary` and `rangeSummary` data.frames.
+#' @export
+learnPlausibleRangeConsensus <- function(comparisonDf = NULL,
+                                         results = NULL,
+                                         valueColumn = "value",
+                                         frequencyColumn = "frequency",
+                                         consensusMethod = c("count", "frequency_weighted", "support_weighted"),
+                                         consensusThreshold = 3,
+                                         rangeMethod = c("weighted_quantile", "raw_min_max"),
+                                         lowerProb = 0.001,
+                                         upperProb = 0.999) {
+  if (is.null(comparisonDf)) {
+    if (is.null(results)) {
+      stop("Provide either `comparisonDf` or `results`.")
+    }
+    comparisonDf <- compareUnivariateOutlierResults(
+      results = results,
+      idColumns = c(valueColumn, frequencyColumn)
+    )
+  }
+  if (!is.data.frame(comparisonDf)) {
+    stop("`comparisonDf` must be a data.frame.")
+  }
+  if (!all(c(valueColumn, frequencyColumn) %in% names(comparisonDf))) {
+    stop("`comparisonDf` must contain `valueColumn` and `frequencyColumn`.")
+  }
+  if (!is.numeric(comparisonDf[[valueColumn]]) || !is.numeric(comparisonDf[[frequencyColumn]])) {
+    stop("`valueColumn` and `frequencyColumn` must be numeric.")
+  }
+  if (!is.numeric(consensusThreshold) || length(consensusThreshold) != 1 || consensusThreshold < 0) {
+    stop("`consensusThreshold` must be a single non-negative number.")
+  }
+  if (!is.numeric(lowerProb) || length(lowerProb) != 1 || lowerProb < 0 || lowerProb > 1) {
+    stop("`lowerProb` must be a single number in [0, 1].")
+  }
+  if (!is.numeric(upperProb) || length(upperProb) != 1 || upperProb < 0 || upperProb > 1) {
+    stop("`upperProb` must be a single number in [0, 1].")
+  }
+  if (lowerProb >= upperProb) {
+    stop("`lowerProb` must be < `upperProb`.")
+  }
+
+  consensusMethod <- match.arg(
+    consensusMethod,
+    choices = c("count", "frequency_weighted", "support_weighted"),
+    several.ok = TRUE
+  )
+  rangeMethod <- match.arg(
+    rangeMethod,
+    choices = c("weighted_quantile", "raw_min_max"),
+    several.ok = TRUE
+  )
+
+  flagColumns <- grep("_flag$", names(comparisonDf), value = TRUE)
+  if (length(flagColumns) < 1) {
+    stop("`comparisonDf` must contain at least one `*_flag` column.")
+  }
+  if (!all(vapply(comparisonDf[, flagColumns, drop = FALSE], is.logical, logical(1)))) {
+    stop("All `*_flag` columns in `comparisonDf` must be logical.")
+  }
+
+  values <- comparisonDf[[valueColumn]]
+  frequencies <- comparisonDf[[frequencyColumn]]
+  totalFrequency <- sum(frequencies)
+  flagMatrix <- as.data.frame(comparisonDf[, flagColumns, drop = FALSE])
+  flagCount <- rowSums(flagMatrix)
+  support <- frequencies / totalFrequency
+
+  valueSummary <- comparisonDf[, c(valueColumn, frequencyColumn), drop = FALSE]
+  valueSummary$consensusCount <- flagCount
+  valueSummary$support <- support
+  valueSummary$consensusScore_count <- flagCount
+  valueSummary$consensusScore_frequency_weighted <- flagCount * frequencies
+  valueSummary$consensusScore_support_weighted <- flagCount * support
+
+  rangeRows <- list()
+  idx <- 1L
+  for (scoring in consensusMethod) {
+    scoreColumn <- paste0("consensusScore_", scoring)
+    consensusScore <- valueSummary[[scoreColumn]]
+    isConsensusOutlier <- consensusScore >= consensusThreshold
+    valueSummary[[paste0("isConsensusOutlier_", scoring)]] <- isConsensusOutlier
+
+    retainedIdx <- which(!isConsensusOutlier)
+    if (length(retainedIdx) < 1) {
+      stop(paste0(
+        "No retained values remain under `consensusMethod = \"", scoring,
+        "\"` and `consensusThreshold = ", consensusThreshold, "`."
+      ))
+    }
+
+    retainedValues <- values[retainedIdx]
+    retainedFrequencies <- frequencies[retainedIdx]
+    for (method in rangeMethod) {
+      bounds <- .deriveConsensusBounds(
+        values = retainedValues,
+        frequencies = retainedFrequencies,
+        rangeMethod = method,
+        lowerProb = lowerProb,
+        upperProb = upperProb
+      )
+      rangeRows[[idx]] <- data.frame(
+        consensusMethod = scoring,
+        consensusThreshold = consensusThreshold,
+        rangeMethod = method,
+        lowerProb = if (method == "weighted_quantile") lowerProb else NA_real_,
+        upperProb = if (method == "weighted_quantile") upperProb else NA_real_,
+        minPlausible = bounds[1],
+        maxPlausible = bounds[2],
+        retainedDistinctValues = length(retainedValues),
+        retainedTotalFrequency = sum(retainedFrequencies),
+        excludedDistinctValues = sum(isConsensusOutlier),
+        excludedTotalFrequency = sum(frequencies[isConsensusOutlier]),
+        stringsAsFactors = FALSE
+      )
+      idx <- idx + 1L
+    }
+  }
+
+  list(
+    valueSummary = valueSummary,
+    rangeSummary = do.call(rbind, rangeRows)
+  )
+}
+
 .validateReportingDf <- function(df, scoreColumn, frequencyColumn, cutoffColumn = NULL) {
   if (!is.data.frame(df)) {
     stop("`df` must be a data.frame.")
@@ -616,4 +766,18 @@ compareUnivariateOutlierResults <- function(results,
   below <- pmax(lower - values, 0)
   above <- pmax(values - upper, 0)
   pmax(below, above)
+}
+
+.deriveConsensusBounds <- function(values, frequencies, rangeMethod, lowerProb, upperProb) {
+  if (rangeMethod == "raw_min_max") {
+    return(c(min(values), max(values)))
+  }
+
+  ordering <- order(values)
+  values <- values[ordering]
+  frequencies <- frequencies[ordering]
+  c(
+    .quantileFromFreq(values, frequencies, lowerProb, interpolate = FALSE, preSorted = TRUE),
+    .quantileFromFreq(values, frequencies, upperProb, interpolate = FALSE, preSorted = TRUE)
+  )
 }

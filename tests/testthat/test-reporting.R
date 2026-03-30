@@ -166,3 +166,51 @@ test_that("compareUnivariateOutlierResults returns score, flag, and threshold fi
   expect_equal(comparison$modified_score, abs(modifiedOut$modifiedZScore))
   expect_equal(comparison$esd_score, esdOut$outlierCount)
 })
+
+test_that("learnPlausibleRangeConsensus returns value and range summaries", {
+  df <- data.frame(
+    value = c(10, 11, 12, 13, 100),
+    frequency = c(8, 10, 10, 8, 1)
+  )
+
+  comparison <- compareUnivariateOutlierResults(
+    list(
+      tukey = tukeyFences(df),
+      quantile = quantileThresholds(df, lowerProb = 0.05, upperProb = 0.95),
+      zscore = zScoreOutliers(df, zCutoff = 2),
+      modified = modifiedZScoreOutliers(df, zCutoff = 2.5),
+      esd = generalizedESDOutliers(df, maxOutliers = 3, alpha = 0.05)
+    )
+  )
+
+  out <- learnPlausibleRangeConsensus(
+    comparisonDf = comparison,
+    consensusMethod = c("count", "support_weighted"),
+    consensusThreshold = 3,
+    rangeMethod = c("weighted_quantile", "raw_min_max"),
+    lowerProb = 0.05,
+    upperProb = 0.95
+  )
+
+  expect_true(all(c("valueSummary", "rangeSummary") %in% names(out)))
+  expect_true(all(c(
+    "consensusCount",
+    "support",
+    "consensusScore_count",
+    "consensusScore_frequency_weighted",
+    "consensusScore_support_weighted",
+    "isConsensusOutlier_count",
+    "isConsensusOutlier_support_weighted"
+  ) %in% names(out$valueSummary)))
+  expect_true(all(c(
+    "consensusMethod",
+    "rangeMethod",
+    "minPlausible",
+    "maxPlausible",
+    "retainedDistinctValues",
+    "retainedTotalFrequency"
+  ) %in% names(out$rangeSummary)))
+  expect_true(out$valueSummary$isConsensusOutlier_count[out$valueSummary$value == 100])
+  countRanges <- subset(out$rangeSummary, consensusMethod == "count")
+  expect_true(all(countRanges$maxPlausible <= 13))
+})

@@ -1,0 +1,137 @@
+---
+title: "Learning Plausible Measurement Ranges By Consensus Voting"
+format:
+  html:
+    toc: true
+    code-fold: show
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+report_dir <- dirname(knitr::current_input(dir = TRUE))
+project_dir <- normalizePath(file.path(report_dir, "..", ".."), winslash = "/", mustWork = FALSE)
+
+if (!"package:AnomalyDetectionMethods" %in% search()) {
+  if (requireNamespace("devtools", quietly = TRUE)) {
+    devtools::load_all(project_dir)
+  } else {
+    stop("Install `devtools` or load `AnomalyDetectionMethods` before rendering this report.")
+  }
+}
+
+demo_path <- file.path(project_dir, "inst", "extdata", "plausible_range_demo.csv")
+if (!file.exists(demo_path)) {
+  demo_path <- system.file("extdata", "plausible_range_demo.csv", package = "AnomalyDetectionMethods")
+}
+demo_df <- read.csv(demo_path, stringsAsFactors = FALSE)
+demo_df
+```
+
+## Purpose
+
+This example shows how to learn a plausible value range from a single
+value-frequency distribution by:
+
+1. running several univariate outlier detectors
+2. converting their outputs into binary flags
+3. combining those flags by consensus voting
+4. deriving plausible bounds from the retained values
+
+The demo distribution has:
+
+- a dense central region
+- thin but plausible tails
+- one obvious high-end implausible value
+
+## Run The Univariate Methods
+
+```{r}
+tukey_out <- tukeyFences(demo_df)
+quantile_out <- quantileThresholds(demo_df, lowerProb = 0.01, upperProb = 0.99)
+z_out <- zScoreOutliers(demo_df, zCutoff = 3)
+modified_out <- modifiedZScoreOutliers(demo_df, zCutoff = 3.5)
+esd_out <- generalizedESDOutliers(demo_df, maxOutliers = 5, alpha = 0.05)
+
+comparison <- compareUnivariateOutlierResults(
+  list(
+    tukey = tukey_out,
+    quantile = quantile_out,
+    zscore = z_out,
+    modified = modified_out,
+    esd = esd_out
+  )
+)
+
+comparison
+```
+
+## Inspect The Voting Structure
+
+```{r}
+comparison[, c(
+  "value",
+  "frequency",
+  "tukey_flag",
+  "quantile_flag",
+  "zscore_flag",
+  "modified_flag",
+  "esd_flag",
+  "consensusCount"
+)]
+```
+
+Here, `consensusCount` is the number of methods that flagged each value as an outlier.
+
+## Learn Plausible Ranges Under Different Assumptions
+
+```{r}
+consensus <- learnPlausibleRangeConsensus(
+  comparisonDf = comparison,
+  consensusMethod = c("count", "frequency_weighted", "support_weighted"),
+  consensusThreshold = 3,
+  rangeMethod = c("weighted_quantile", "raw_min_max"),
+  lowerProb = 0.001,
+  upperProb = 0.999
+)
+
+consensus$rangeSummary
+```
+
+## Compare Retained Values
+
+```{r}
+consensus$valueSummary
+```
+
+Useful columns:
+
+- `consensusCount`: number of methods flagging the value
+- `consensusScore_count`: plain vote count
+- `consensusScore_frequency_weighted`: vote count multiplied by frequency
+- `consensusScore_support_weighted`: vote count multiplied by relative support
+- `isConsensusOutlier_*`: whether the value is excluded under each consensus strategy
+
+## Reading The Differences
+
+- `count` consensus is the closest to a simple majority-voting approach.
+- `frequency_weighted` penalizes repeated flagged values more heavily.
+- `support_weighted` downweights rare values, which can help preserve unusual but plausible extremes.
+- `weighted_quantile` bounds are more robust than `raw_min_max` because they are less sensitive to single retained edge values.
+
+## Practical Interpretation
+
+For measurement-range learning, the usual workflow is:
+
+1. start with `consensusMethod = "count"`
+2. use a moderate threshold such as `3`
+3. compare `weighted_quantile` against `raw_min_max`
+4. inspect whether rare but clinically plausible values are being retained
+5. increase or decrease the consensus threshold depending on how conservative you want the learned range to be
+
+## Optional Next Step
+
+If the distribution is strongly skewed, repeat the process after a log
+transformation and compare the resulting plausible bounds.
