@@ -1,0 +1,125 @@
+title: "Measurement Plausibility Summary Report"
+format: html
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+output_dir <- Sys.getenv("REPORT_OUTPUT_DIR", unset = "../output")
+output_dir <- normalizePath(output_dir, winslash = "/", mustWork = TRUE)
+report_title <- Sys.getenv("REPORT_TITLE", unset = "Measurement Plausibility Summary Report")
+table_dir <- file.path(output_dir, "tables")
+figure_dir <- file.path(output_dir, "figures")
+metadata_dir <- file.path(output_dir, "metadata")
+
+read_table <- function(name) {
+  readRDS(file.path(table_dir, paste0(name, ".rds")))
+}
+
+input_summary <- read_table("input_summary")
+age_band_distribution <- read_table("age_band_distribution")
+gender_distribution <- read_table("gender_distribution")
+global_method_ranges <- read_table("global_method_ranges")
+global_consensus_range <- read_table("global_consensus_range")
+strata_diagnostics <- read_table("strata_diagnostics")
+stratified_ranges <- read_table("stratified_ranges")
+contextual_model_summary <- read_table("contextual_model_summary")
+classification_summary <- read_table("classification_summary")
+row_level_results <- read_table("row_level_results")
+```
+
+# `r report_title`
+
+## Overview
+
+This report summarizes a one-off measurement plausibility analysis run from a value-frequency table stored in an Andromeda object.
+
+```{r}
+knitr::kable(input_summary)
+```
+
+### Age Band Distribution
+
+```{r}
+knitr::kable(age_band_distribution)
+```
+
+### Gender Distribution
+
+```{r}
+knitr::kable(gender_distribution)
+```
+
+## Global Plausible Range
+
+```{r}
+knitr::include_graphics(file.path(figure_dir, "global_weighted_distribution.png"))
+knitr::include_graphics(file.path(figure_dir, "global_method_bounds.png"))
+```
+
+```{r}
+knitr::kable(global_method_ranges)
+```
+
+```{r}
+knitr::kable(global_consensus_range)
+```
+
+## Stratified Analysis
+
+```{r}
+knitr::include_graphics(file.path(figure_dir, "stratum_diagnostics.png"))
+knitr::include_graphics(file.path(figure_dir, "stratified_ranges.png"))
+```
+
+```{r}
+knitr::kable(strata_diagnostics)
+```
+
+```{r}
+knitr::kable(stratified_ranges)
+```
+
+## Context-Aware Anomaly Detection
+
+```{r}
+knitr::include_graphics(file.path(figure_dir, "gad_score_distribution.png"))
+knitr::include_graphics(file.path(figure_dir, "gad_distance_qq.png"))
+knitr::include_graphics(file.path(figure_dir, "isolation_forest_rank.png"))
+```
+
+```{r}
+knitr::kable(contextual_model_summary)
+```
+
+## Final Interpretation
+
+```{r}
+knitr::include_graphics(file.path(figure_dir, "contextual_value_scatter.png"))
+knitr::include_graphics(file.path(figure_dir, "final_classification_bar.png"))
+```
+
+```{r}
+knitr::kable(classification_summary)
+```
+
+### Representative Flagged Rows
+
+```{r}
+flagged <- row_level_results[
+  row_level_results$finalClassification != "plausible",
+  c("row_id", "age", "age_band", "gender_label", "care_site_id", "value", "frequency", "finalClassification")
+]
+knitr::kable(utils::head(flagged, 20))
+```
+
+## Appendix
+
+### Metadata
+
+```{r}
+metadata <- readRDS(file.path(metadata_dir, "run_metadata.rds"))
+knitr::kable(as.data.frame(metadata, stringsAsFactors = FALSE))
+```

@@ -1,0 +1,2 @@
+"consensusMethod","consensusThreshold","rangeMethod","lowerProb","upperProb","minPlausible","maxPlausible","retainedDistinctValues","retainedTotalFrequency","excludedDistinctValues","excludedTotalFrequency"
+"count",3,"weighted_quantile",0.001,0.999,95,125,31,8726,7,19

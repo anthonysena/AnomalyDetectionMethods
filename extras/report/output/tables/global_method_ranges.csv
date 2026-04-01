@@ -1,0 +1,6 @@
+"method","lower_bound","upper_bound","flagged_distinct_values","flagged_total_frequency"
+"tukey",96.5,124.5,10,69
+"quantile",98,123,12,127
+"zscore",NA,NA,5,6
+"modified",NA,NA,7,19
+"esd",NA,NA,1,1

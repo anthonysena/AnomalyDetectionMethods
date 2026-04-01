@@ -1,0 +1,8 @@
+project:
+  type: default
+
+format:
+  html:
+    toc: true
+    code-fold: false
+    theme: cosmo
