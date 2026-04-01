@@ -197,6 +197,10 @@ report_require_analysis_functions <- function() {
   )
   missing <- required[!vapply(required, exists, logical(1), mode = "function", inherits = TRUE)]
   if (length(missing) > 0) {
+    report_source_package_functions()
+    missing <- required[!vapply(required, exists, logical(1), mode = "function", inherits = TRUE)]
+  }
+  if (length(missing) > 0) {
     stop(
       paste0(
         "Missing analysis function(s): ",
